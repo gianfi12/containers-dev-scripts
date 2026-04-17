@@ -1,0 +1,8 @@
+.apptainer-spack/
+images/*.sif
+*.sif
+*.squashfs
+*.img
+*.log
+*.lock
+
