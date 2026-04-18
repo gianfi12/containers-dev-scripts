@@ -8,6 +8,8 @@ STATE_DIR="${STATE_DIR:-}"
 CONTAINER_HOME="/home/$USER"
 STATE_MOUNT="${STATE_MOUNT:-$CONTAINER_HOME/.apptainer-spack}"
 MODULE_COLLECTIONS_MOUNT="${MODULE_COLLECTIONS_MOUNT:-$CONTAINER_HOME/.module}"
+PROFILE_BIND_SOURCE="${PROFILE_BIND_SOURCE:-$ROOT_DIR/support/90-apptainer-dev-base.sh}"
+PROFILE_BIND_TARGET="/etc/profile.d/90-apptainer-dev-base.sh"
 USE_SPACK=0
 AUTO_HOME=1
 
@@ -94,6 +96,8 @@ done
   echo "Run bin/base-build.sh first." >&2
   exit 1
 }
+
+apptainer_args+=(--bind "$PROFILE_BIND_SOURCE:$PROFILE_BIND_TARGET")
 
 if [[ "$USE_SPACK" -eq 1 ]]; then
   [[ -n "$STATE_DIR" ]] || STATE_DIR="$PWD/.apptainer-spack"

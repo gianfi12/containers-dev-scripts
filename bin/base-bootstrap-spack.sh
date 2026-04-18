@@ -8,6 +8,8 @@ STATE_DIR="${STATE_DIR:-$HOME/.apptainer-spack}"
 CONTAINER_HOME="/home/$USER"
 STATE_MOUNT="${STATE_MOUNT:-$CONTAINER_HOME/.apptainer-spack}"
 SPACK_REF="${SPACK_REF:-develop}"
+PROFILE_BIND_SOURCE="${PROFILE_BIND_SOURCE:-$ROOT_DIR/support/90-apptainer-dev-base.sh}"
+PROFILE_BIND_TARGET="/etc/profile.d/90-apptainer-dev-base.sh"
 
 usage() {
   cat <<EOF
@@ -36,6 +38,22 @@ print_command() {
     printf ' %q' "$arg" >&2
   done
   printf '\n' >&2
+}
+
+normalize_spack_state() {
+  local state_dir="$1"
+  local state_mount="$2"
+  mkdir -p "$state_dir/stage"
+  if [[ -f "$state_dir/config/config.yaml" ]]; then
+    STATE_MOUNT="$state_mount" perl -0pi -e '
+      s{(\n\s*build_stage:\n\s*-\s*).*\n}{$1$ENV{STATE_MOUNT}/stage\n}m;
+      END {
+        if ($_ !~ /\n\s*build_stage:\n/s) {
+          s/\z/\n  build_stage:\n  - $ENV{STATE_MOUNT}\/stage\n/s;
+        }
+      }
+    ' "$state_dir/config/config.yaml"
+  fi
 }
 
 state_uses_legacy_mount() {
@@ -94,6 +112,7 @@ fi
 cmd=(
   apptainer exec
   --home "$HOME:$CONTAINER_HOME"
+  --bind "$PROFILE_BIND_SOURCE:$PROFILE_BIND_TARGET"
   --bind "$STATE_DIR:$STATE_MOUNT"
   --env "APPTAINER_DEV_STATE_DIR=$STATE_MOUNT"
   "$IMAGE_PATH"
@@ -107,4 +126,5 @@ if [[ ${#bootstrap_specs[@]} -gt 0 ]]; then
 fi
 
 print_command "${cmd[@]}"
-exec "${cmd[@]}"
+"${cmd[@]}"
+normalize_spack_state "$STATE_DIR" "$STATE_MOUNT"
