@@ -1,8 +1,10 @@
 .apptainer-spack/
-images/*.sif
+.codex
+mounts/*
+!mounts/.gitkeep
+images/
 *.sif
 *.squashfs
 *.img
 *.log
 *.lock
-

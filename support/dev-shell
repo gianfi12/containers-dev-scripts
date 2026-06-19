@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -f /etc/profile.d/90-apptainer-dev-base.sh ]]; then
+    # Load the mounted Spack state and module path before running commands.
+    source /etc/profile.d/90-apptainer-dev-base.sh
+fi
+
+if [[ $# -gt 0 ]]; then
+    exec "$@"
+fi
+
+start_dir="${PWD:-}"
+if [[ -n "$start_dir" ]] && [[ -d "$start_dir" ]]; then
+    cd "$start_dir"
+elif [[ -d "$HOME" ]]; then
+    cd "$HOME"
+elif [[ -d /workspace ]]; then
+    cd /workspace
+fi
+
+if ! infocmp "${TERM:-xterm-256color}" >/dev/null 2>&1; then
+    export TERM=xterm-256color
+fi
+
+if command -v zsh >/dev/null 2>&1; then
+    exec zsh -il
+else
+    exec bash -il
+fi

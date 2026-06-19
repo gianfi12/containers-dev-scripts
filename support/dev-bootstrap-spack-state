@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STATE_DIR="${APPTAINER_DEV_STATE_DIR:-${HOME:-/tmp}/.apptainer-spack}"
+SPACK_REF="${SPACK_REF:-develop}"
+DEFAULT_SPECS=(environment-modules zlib)
+EXTRA_SPECS=()
+
+usage() {
+  cat <<USAGE
+Usage:
+  dev-bootstrap-spack-state [options] [spec...]
+
+Options:
+  --state DIR    Install Spack state under DIR.
+  --ref REF      Clone Spack ref REF only if /opt/spack is unavailable.
+  --help         Show this help.
+
+Examples:
+  dev-bootstrap-spack-state
+  dev-bootstrap-spack-state --state /mnt/dev/spack
+  dev-bootstrap-spack-state hdf5
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help)
+      usage
+      exit 0
+      ;;
+    --state)
+      STATE_DIR="$2"
+      shift 2
+      ;;
+    --ref)
+      SPACK_REF="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      EXTRA_SPECS+=("$@")
+      break
+      ;;
+    *)
+      EXTRA_SPECS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+IMAGE_SPACK_ROOT="${SPACK_ROOT:-/opt/spack}"
+if [[ -f "$IMAGE_SPACK_ROOT/share/spack/setup-env.sh" ]]; then
+  SPACK_ROOT="$IMAGE_SPACK_ROOT"
+else
+  SPACK_ROOT="$STATE_DIR/spack"
+fi
+
+SPACK_ENV_DIR="$STATE_DIR/environments/default"
+SPACK_USER_CONFIG_PATH="$STATE_DIR/config"
+SPACK_USER_CACHE_PATH="$STATE_DIR/cache"
+SPACK_MODULE_ROOT="$STATE_DIR/modules"
+
+mkdir -p \
+  "$SPACK_USER_CONFIG_PATH" \
+  "$SPACK_USER_CACHE_PATH" \
+  "$STATE_DIR/store" \
+  "$STATE_DIR/stage" \
+  "$SPACK_MODULE_ROOT" \
+  "$SPACK_ENV_DIR"
+
+if [[ ! -f "$SPACK_ROOT/share/spack/setup-env.sh" ]]; then
+  git clone --depth 1 --branch "$SPACK_REF" https://github.com/spack/spack.git "$SPACK_ROOT"
+fi
+
+cat >"$SPACK_USER_CONFIG_PATH/config.yaml" <<CFG
+config:
+  install_tree:
+    root: $STATE_DIR/store
+  build_stage:
+  - $STATE_DIR/stage
+CFG
+
+cat >"$SPACK_USER_CONFIG_PATH/modules.yaml" <<CFG
+modules:
+  default:
+    roots:
+      tcl: $SPACK_MODULE_ROOT
+    enable:
+    - tcl
+    arch_folder: false
+    tcl:
+      hide_implicits: true
+CFG
+
+if [[ -x /usr/bin/gcc && -x /usr/bin/g++ && -x /usr/bin/gfortran ]]; then
+  GCC_VERSION="$(/usr/bin/gcc -dumpfullversion 2>/dev/null || /usr/bin/gcc -dumpversion)"
+  cat >"$SPACK_USER_CONFIG_PATH/packages.yaml" <<CFG
+packages:
+  gcc:
+    externals:
+    - spec: gcc@${GCC_VERSION} languages='c,c++,fortran'
+      prefix: /usr
+      extra_attributes:
+        compilers:
+          c: /usr/bin/gcc
+          cxx: /usr/bin/g++
+          fortran: /usr/bin/gfortran
+    buildable: false
+CFG
+fi
+
+if [[ ! -f "$SPACK_ENV_DIR/spack.yaml" ]]; then
+  {
+    printf 'spack:\n'
+    printf '  specs:\n'
+    for spec in "${DEFAULT_SPECS[@]}"; do
+      printf '  - %s\n' "$spec"
+    done
+    printf '  view: false\n'
+    printf '  concretizer:\n'
+    printf '    unify: true\n'
+    printf '  modules:\n'
+    printf '    default:\n'
+    printf '      roots:\n'
+    printf '        tcl: %s\n' "$SPACK_MODULE_ROOT"
+    printf '      enable:\n'
+    printf '      - tcl\n'
+    printf '      arch_folder: false\n'
+    printf '      tcl:\n'
+    printf '        hide_implicits: true\n'
+  } >"$SPACK_ENV_DIR/spack.yaml"
+fi
+
+export SPACK_ROOT SPACK_ENV_DIR SPACK_USER_CONFIG_PATH SPACK_USER_CACHE_PATH SPACK_MODULE_ROOT
+. "$SPACK_ROOT/share/spack/setup-env.sh"
+
+if [[ ${#EXTRA_SPECS[@]} -gt 0 ]]; then
+  for spec in "${EXTRA_SPECS[@]}"; do
+    spack -C "$SPACK_USER_CONFIG_PATH" -e "$SPACK_ENV_DIR" add "$spec"
+  done
+fi
+
+spack -C "$SPACK_USER_CONFIG_PATH" -e "$SPACK_ENV_DIR" concretize -f
+spack -C "$SPACK_USER_CONFIG_PATH" -e "$SPACK_ENV_DIR" install
+spack -C "$SPACK_USER_CONFIG_PATH" -e "$SPACK_ENV_DIR" module tcl refresh -y
+
+printf 'Spack state ready at %s\n' "$STATE_DIR"

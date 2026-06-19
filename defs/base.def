@@ -3,7 +3,7 @@ From: registry.fedoraproject.org/fedora-minimal:40
 
 %labels
     Author gaccordi
-    Purpose Portable development image with OS tooling and mounted Spack state
+    Purpose Portable development image with OS tooling, /opt/spack, and mounted state
 
 %help
     Portable Apptainer base image.
@@ -14,25 +14,37 @@ From: registry.fedoraproject.org/fedora-minimal:40
     Run:
       apptainer run images/base.sif
       apptainer run --home "$HOME:/home/$USER" \
-        --bind "$PWD:/workspace" \
-        --pwd /workspace \
+        --bind "$PWD/mounts/fedora:/mnt/dev" \
+        --env APPTAINER_DEV_MOUNT=/mnt/dev \
+        --env APPTAINER_DEV_STATE_DIR=/mnt/dev/spack \
         images/base.sif
       apptainer run --home "$HOME:/home/$USER" \
         --bind "$PWD/.apptainer-spack:/home/$USER/.apptainer-spack" \
+        --env APPTAINER_DEV_STATE_DIR=/home/$USER/.apptainer-spack \
         images/base.sif
 
     Notes:
-      - This image bakes in OS/editor/build dependencies only.
-      - Spack itself lives in a mounted writable state directory and is not
-        baked into the SIF.
+      - This image bakes in OS/editor/build dependencies and /opt/spack.
+      - Spack installs, environments, cache, and Tcl modulefiles live in the
+        mounted writable state directory.
       - Run dev-bootstrap-spack-state once inside the container, or use the
         host wrapper bin/base-bootstrap-spack.sh.
       - Tcl modulefiles are generated automatically into the mounted state.
+      - The image already includes /etc/profile.d/90-apptainer-dev-base.sh, so
+        host runtime wrappers do not need to bind in a profile script.
       - You do not need fakeroot for runtime spack install. fakeroot is only
         needed to build the image itself.
+      - The image also includes Codex (`codex`), Copilot CLI (`copilot`),
+        Continue CLI (`cn`), and Claude Code (`claude`).
+
+%files
+    support/90-apptainer-dev-base.sh /etc/profile.d/90-apptainer-dev-base.sh
+    support/dev-bootstrap-spack-state /usr/local/bin/dev-bootstrap-spack-state
+    support/dev-shell /usr/local/bin/dev-shell
 
 %environment
     export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    export EDITOR=nvim
 
 %post
     set -euo pipefail
@@ -45,26 +57,43 @@ From: registry.fedoraproject.org/fedora-minimal:40
 
     "$PM" install -y --setopt=install_weak_deps=0 \
         git \
+        automake \
+        ncurses ncurses-term \
+        wget \
         python3 \
+        python3-pygments \
+        python3-pip \
+        python3-rpm \
         zsh \
+        tmux \
+        vim-enhanced \
         kitty \
         ImageMagick \
+        bubblewrap \
         curl \
         ripgrep \
         fd-find \
         fzf \
+        golang \
+        jq \
         tree-sitter-cli \
-        nodejs \
         luarocks \
         wl-clipboard \
         xclip \
         xsel \
         btop \
         nvtop \
+        cmake \
+        cargo \
+        gdb \
         gcc \
         gcc-c++ \
+        gcc-gfortran \
         make \
+        rust \
+        shfmt \
         patch \
+        valgrind \
         diffutils \
         findutils \
         file \
@@ -77,6 +106,39 @@ From: registry.fedoraproject.org/fedora-minimal:40
         environment-modules
     "$PM" clean all || true
 
+    NODE_BASE_URL="https://nodejs.org/download/release/latest-v22.x"
+    NODE_TARBALL="$(curl -fsSL "${NODE_BASE_URL}/SHASUMS256.txt" | awk '/linux-x64.tar.xz$/ { print $2; exit }')"
+    NODE_SHA256="$(curl -fsSL "${NODE_BASE_URL}/SHASUMS256.txt" | awk -v tarball="$NODE_TARBALL" '$2 == tarball { print $1; exit }')"
+    curl -fsSL -o "/tmp/${NODE_TARBALL}" "${NODE_BASE_URL}/${NODE_TARBALL}"
+    printf '%s  %s\n' "${NODE_SHA256}" "/tmp/${NODE_TARBALL}" | sha256sum -c -
+    rm -rf /usr/local/lib/node_modules /usr/local/include/node /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx
+    tar -C /usr/local --strip-components=1 -xJf "/tmp/${NODE_TARBALL}"
+    rm -f "/tmp/${NODE_TARBALL}"
+
+    npm install -g \
+        @openai/codex \
+        @github/copilot \
+        @continuedev/cli \
+        @google/gemini-cli \
+        @anthropic-ai/claude-code
+    npm cache clean --force || true
+
+    python3 -m pip install --no-cache-dir --prefix /usr/local \
+        pynvim \
+        black \
+        ruff
+
+    LAZYGIT_VERSION="0.61.1"
+    LAZYGIT_TARBALL="lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz"
+    LAZYGIT_CHECKSUMS_URL="https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/checksums.txt"
+    LAZYGIT_SHA256="$(curl -fsSL "${LAZYGIT_CHECKSUMS_URL}" | awk -v tarball="${LAZYGIT_TARBALL}" '$2 == tarball { print $1; exit }')"
+    curl -fsSL -o "/tmp/${LAZYGIT_TARBALL}" \
+        "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/${LAZYGIT_TARBALL}"
+    printf '%s  %s\n' "${LAZYGIT_SHA256}" "/tmp/${LAZYGIT_TARBALL}" | sha256sum -c -
+    tar -C /usr/local/bin -xzf "/tmp/${LAZYGIT_TARBALL}" lazygit
+    chmod 0755 /usr/local/bin/lazygit
+    rm -f "/tmp/${LAZYGIT_TARBALL}"
+
     NVIM_VERSION="0.12.1"
     curl -fsSL \
         -o /tmp/nvim-linux-x86_64.tar.gz \
@@ -87,283 +149,29 @@ From: registry.fedoraproject.org/fedora-minimal:40
     ln -sf /opt/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
     rm -f /tmp/nvim-linux-x86_64.tar.gz
 
-    cat >/etc/profile.d/90-apptainer-dev-base.sh <<'EOF'
-export APPTAINER_DEV_STATE_DIR="${APPTAINER_DEV_STATE_DIR:-}"
+    SPACK_IMAGE_REF="develop"
+    rm -rf /opt/spack
+    git clone --depth 1 --branch "${SPACK_IMAGE_REF}" https://github.com/spack/spack.git /opt/spack
+    chmod -R a+rX /opt/spack
 
-if [ -n "${APPTAINER_DEV_STATE_DIR}" ]; then
-export APPTAINER_DEV_SPACK_ROOT="${APPTAINER_DEV_SPACK_ROOT:-${APPTAINER_DEV_STATE_DIR}/spack}"
-export SPACK_ROOT="${SPACK_ROOT:-${APPTAINER_DEV_SPACK_ROOT}}"
-export SPACK_ENV_DIR="${SPACK_ENV_DIR:-${APPTAINER_DEV_STATE_DIR}/environments/default}"
-export SPACK_MODULE_ROOT="${SPACK_MODULE_ROOT:-${APPTAINER_DEV_STATE_DIR}/modules}"
-export SPACK_USER_CONFIG_PATH="${SPACK_USER_CONFIG_PATH:-${APPTAINER_DEV_STATE_DIR}/config}"
-export SPACK_USER_CACHE_PATH="${SPACK_USER_CACHE_PATH:-${APPTAINER_DEV_STATE_DIR}/cache}"
-unset SPACK_DISABLE_LOCAL_CONFIG
-fi
-
-_apptainer_dev_source_first() {
-    for candidate in "$@"; do
-        if [ -f "$candidate" ]; then
-            . "$candidate"
-            return 0
-        fi
-    done
-    return 1
-}
-
-_apptainer_dev_module_is_ready() {
-    command -v module >/dev/null 2>&1 || typeset -f module >/dev/null 2>&1
-}
-
-_apptainer_dev_module_shell_name() {
-    if [ -n "${ZSH_VERSION:-}" ]; then
-        printf '%s\n' zsh
-    elif [ -n "${BASH_VERSION:-}" ]; then
-        printf '%s\n' bash
-    else
-        printf '%s\n' sh
-    fi
-}
-
-_apptainer_dev_source_module_init() {
-    prefix="$1"
-    shell_name="$(_apptainer_dev_module_shell_name)"
-    _apptainer_dev_source_first \
-        "${prefix}/init/${shell_name}" \
-        "${prefix}/share/Modules/init/${shell_name}" \
-        "${prefix}/init/sh" \
-        "${prefix}/share/Modules/init/sh" \
-        "${prefix}/init/profile.sh" \
-        "${prefix}/share/Modules/init/profile.sh"
-}
-
-if [ -n "${APPTAINER_DEV_STATE_DIR:-}" ] && mkdir -p \
-    "${APPTAINER_DEV_STATE_DIR}" \
-    "${SPACK_USER_CONFIG_PATH}" \
-    "${SPACK_USER_CACHE_PATH}" \
-    "${SPACK_MODULE_ROOT}" \
-    "${SPACK_ENV_DIR}" 2>/dev/null; then
-    :
-fi
-
-if [ -n "${APPTAINER_DEV_STATE_DIR:-}" ] && [ -f "${SPACK_ROOT}/share/spack/setup-env.sh" ]; then
-    . "${SPACK_ROOT}/share/spack/setup-env.sh"
-
-    if [ -f "${SPACK_ENV_DIR}/spack.yaml" ]; then
-        spack env activate "${SPACK_ENV_DIR}" >/dev/null 2>&1 || true
-    fi
-
-    module_prefix="$(spack location -i environment-modules 2>/dev/null || true)"
-    if [ -n "${module_prefix}" ] && ! _apptainer_dev_module_is_ready; then
-        _apptainer_dev_source_module_init "${module_prefix}" || true
-    fi
-fi
-
-if ! _apptainer_dev_module_is_ready; then
-    _apptainer_dev_source_module_init /usr/share/Modules || true
-fi
-
-if [ -n "${APPTAINER_DEV_STATE_DIR:-}" ] && _apptainer_dev_module_is_ready && [ -d "${SPACK_MODULE_ROOT}" ]; then
-    module use "${SPACK_MODULE_ROOT}" >/dev/null 2>&1 || true
-fi
-
-unset module_prefix prefix shell_name
-EOF
     chmod 0644 /etc/profile.d/90-apptainer-dev-base.sh
+    chmod 0755 /usr/local/bin/dev-bootstrap-spack-state /usr/local/bin/dev-shell
 
     if [ -f /etc/zshrc ]; then
         if ! grep -q '90-apptainer-dev-base.sh' /etc/zshrc; then
-            cat >>/etc/zshrc <<'EOF'
+            cat >>/etc/zshrc <<'ZSHRC'
 [[ -f /etc/profile.d/90-apptainer-dev-base.sh ]] && source /etc/profile.d/90-apptainer-dev-base.sh
-EOF
+ZSHRC
         fi
     elif [ -d /etc/zsh ]; then
-        cat >/etc/zsh/zshrc <<'EOF'
+        cat >/etc/zsh/zshrc <<'ZSHRC'
 [[ -f /etc/profile.d/90-apptainer-dev-base.sh ]] && source /etc/profile.d/90-apptainer-dev-base.sh
-EOF
+ZSHRC
     else
-        cat >/etc/zshrc <<'EOF'
+        cat >/etc/zshrc <<'ZSHRC'
 [[ -f /etc/profile.d/90-apptainer-dev-base.sh ]] && source /etc/profile.d/90-apptainer-dev-base.sh
-EOF
+ZSHRC
     fi
-
-    cat >/usr/local/bin/dev-bootstrap-spack-state <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-STATE_DIR="${APPTAINER_DEV_STATE_DIR:-${HOME:-/tmp}/.apptainer-spack}"
-SPACK_REF="${SPACK_REF:-develop}"
-DEFAULT_SPECS=(environment-modules zlib)
-EXTRA_SPECS=()
-
-usage() {
-  cat <<USAGE
-Usage:
-  dev-bootstrap-spack-state [options] [spec...]
-
-Options:
-  --state DIR    Install Spack state under DIR.
-  --ref REF      Clone Spack ref REF. Default: develop
-  --help         Show this help.
-
-Examples:
-  dev-bootstrap-spack-state
-  dev-bootstrap-spack-state --state "$HOME/.apptainer-spack"
-  dev-bootstrap-spack-state hdf5
-USAGE
-}
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --help)
-      usage
-      exit 0
-      ;;
-    --state)
-      STATE_DIR="$2"
-      shift 2
-      ;;
-    --ref)
-      SPACK_REF="$2"
-      shift 2
-      ;;
-    --)
-      shift
-      EXTRA_SPECS+=("$@")
-      break
-      ;;
-    *)
-      EXTRA_SPECS+=("$1")
-      shift
-      ;;
-  esac
-done
-
-SPACK_ROOT="$STATE_DIR/spack"
-SPACK_ENV_DIR="$STATE_DIR/environments/default"
-SPACK_USER_CONFIG_PATH="$STATE_DIR/config"
-SPACK_USER_CACHE_PATH="$STATE_DIR/cache"
-SPACK_MODULE_ROOT="$STATE_DIR/modules"
-
-mkdir -p \
-  "$SPACK_USER_CONFIG_PATH" \
-  "$SPACK_USER_CACHE_PATH" \
-  "$STATE_DIR/store" \
-  "$STATE_DIR/stage" \
-  "$SPACK_MODULE_ROOT" \
-  "$SPACK_ENV_DIR"
-
-if [[ ! -d "$SPACK_ROOT/.git" ]]; then
-  git clone --depth 1 --branch "$SPACK_REF" https://github.com/spack/spack.git "$SPACK_ROOT"
-fi
-
-cat >"$SPACK_USER_CONFIG_PATH/config.yaml" <<CFG
-config:
-  install_tree:
-    root: $STATE_DIR/store
-  build_stage:
-  - $STATE_DIR/stage
-CFG
-
-cat >"$SPACK_USER_CONFIG_PATH/modules.yaml" <<CFG
-modules:
-  default:
-    roots:
-      tcl: $SPACK_MODULE_ROOT
-    enable:
-    - tcl
-    arch_folder: false
-    tcl:
-      hide_implicits: true
-CFG
-
-if [[ -x /usr/bin/gcc && -x /usr/bin/g++ ]]; then
-  GCC_VERSION="$(/usr/bin/gcc -dumpfullversion 2>/dev/null || /usr/bin/gcc -dumpversion)"
-  cat >"$SPACK_USER_CONFIG_PATH/packages.yaml" <<CFG
-packages:
-  gcc:
-    externals:
-    - spec: gcc@${GCC_VERSION} languages='c,c++'
-      prefix: /usr
-      extra_attributes:
-        compilers:
-          c: /usr/bin/gcc
-          cxx: /usr/bin/g++
-    buildable: false
-CFG
-fi
-
-if [[ ! -f "$SPACK_ENV_DIR/spack.yaml" ]]; then
-  {
-    printf 'spack:\n'
-    printf '  specs:\n'
-    for spec in "${DEFAULT_SPECS[@]}"; do
-      printf '  - %s\n' "$spec"
-    done
-    printf '  view: false\n'
-    printf '  concretizer:\n'
-    printf '    unify: true\n'
-    printf '  modules:\n'
-    printf '    default:\n'
-    printf '      roots:\n'
-    printf '        tcl: %s\n' "$SPACK_MODULE_ROOT"
-    printf '      enable:\n'
-    printf '      - tcl\n'
-    printf '      arch_folder: false\n'
-    printf '      tcl:\n'
-    printf '        hide_implicits: true\n'
-  } >"$SPACK_ENV_DIR/spack.yaml"
-fi
-
-export SPACK_ROOT SPACK_ENV_DIR SPACK_USER_CONFIG_PATH SPACK_USER_CACHE_PATH SPACK_MODULE_ROOT
-. "$SPACK_ROOT/share/spack/setup-env.sh"
-
-if [[ ${#EXTRA_SPECS[@]} -gt 0 ]]; then
-  for spec in "${EXTRA_SPECS[@]}"; do
-    spack -C "$SPACK_USER_CONFIG_PATH" -e "$SPACK_ENV_DIR" add "$spec"
-  done
-fi
-
-spack -C "$SPACK_USER_CONFIG_PATH" -e "$SPACK_ENV_DIR" concretize -f
-spack -C "$SPACK_USER_CONFIG_PATH" -e "$SPACK_ENV_DIR" install
-spack -C "$SPACK_USER_CONFIG_PATH" -e "$SPACK_ENV_DIR" module tcl refresh -y
-
-printf 'Spack state ready at %s\n' "$STATE_DIR"
-EOF
-    chmod 0755 /usr/local/bin/dev-bootstrap-spack-state
-
-    cat >/usr/local/bin/dev-shell <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-if [[ -f /etc/profile.d/90-apptainer-dev-base.sh ]]; then
-    # Load the mounted Spack state and module path before running commands.
-    source /etc/profile.d/90-apptainer-dev-base.sh
-fi
-
-if [[ $# -gt 0 ]]; then
-    exec "$@"
-fi
-
-start_dir="${PWD:-}"
-if [[ -n "$start_dir" ]] && [[ -d "$start_dir" ]]; then
-    cd "$start_dir"
-elif [[ -d "$HOME" ]]; then
-    cd "$HOME"
-elif [[ -d /workspace ]]; then
-    cd /workspace
-fi
-
-if ! infocmp "${TERM:-xterm-256color}" >/dev/null 2>&1; then
-    export TERM=xterm-256color
-fi
-
-if command -v zsh >/dev/null 2>&1; then
-    exec zsh -il
-else
-    exec bash -il
-fi
-EOF
-    chmod 0755 /usr/local/bin/dev-shell
 
 %runscript
     exec /usr/local/bin/dev-shell "$@"
@@ -371,8 +179,11 @@ EOF
 %test
     set -e
     command -v zsh >/dev/null
+    command -v tmux >/dev/null
+    command -v vim >/dev/null
     command -v nvim >/dev/null
     command -v btop >/dev/null
     command -v nvtop >/dev/null
     command -v module >/dev/null
     command -v dev-bootstrap-spack-state >/dev/null
+    test -f /opt/spack/share/spack/setup-env.sh
