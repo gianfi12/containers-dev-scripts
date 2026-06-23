@@ -25,27 +25,27 @@ USAGE
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --help)
-      usage
-      exit 0
-      ;;
-    --state)
-      STATE_DIR="$2"
-      shift 2
-      ;;
-    --ref)
-      SPACK_REF="$2"
-      shift 2
-      ;;
-    --)
-      shift
-      EXTRA_SPECS+=("$@")
-      break
-      ;;
-    *)
-      EXTRA_SPECS+=("$1")
-      shift
-      ;;
+  --help)
+    usage
+    exit 0
+    ;;
+  --state)
+    STATE_DIR="$2"
+    shift 2
+    ;;
+  --ref)
+    SPACK_REF="$2"
+    shift 2
+    ;;
+  --)
+    shift
+    EXTRA_SPECS+=("$@")
+    break
+    ;;
+  *)
+    EXTRA_SPECS+=("$1")
+    shift
+    ;;
   esac
 done
 
@@ -79,6 +79,7 @@ config:
     root: $STATE_DIR/store
   build_stage:
   - $STATE_DIR/stage
+  environments_root: ${STATE_DIR}/environments
 CFG
 
 cat >"$SPACK_USER_CONFIG_PATH/modules.yaml" <<CFG

@@ -41,6 +41,7 @@ From: registry.fedoraproject.org/fedora-minimal:40
     support/90-apptainer-dev-base.sh /etc/profile.d/90-apptainer-dev-base.sh
     support/dev-bootstrap-spack-state /usr/local/bin/dev-bootstrap-spack-state
     support/dev-shell /usr/local/bin/dev-shell
+    support/90-apptainer-dev-base.fish /etc/fish/conf.d/90-apptainer-dev-base.fish
 
 %environment
     export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
