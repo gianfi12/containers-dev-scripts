@@ -91,6 +91,7 @@ From: registry.fedoraproject.org/fedora-minimal:40
         gdb \
         gcc \
         gcc-c++ \
+        clang libomp libomp-devel \
         gcc-gfortran \
         make \
         rust \
