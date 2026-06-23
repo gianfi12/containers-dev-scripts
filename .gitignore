@@ -3,6 +3,7 @@
 mounts/*
 !mounts/.gitkeep
 images/
+mount/
 *.sif
 *.squashfs
 *.img

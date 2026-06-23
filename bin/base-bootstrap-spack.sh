@@ -48,13 +48,14 @@ init_state_layout() {
     "$root/work" \
     "$root/scratch" \
     "$root/opt" \
+    "$root/spack/cache/opt-spack-var-cache" \
     "$root/data"
 }
 
 write_spack_config() {
   local cfg_dir="$1/spack/config"
 
-  cat > "$cfg_dir/config.yaml" <<'YAML'
+  cat >"$cfg_dir/config.yaml" <<'YAML'
 config:
   install_tree:
     root: /mnt/dev/spack/opt
@@ -65,7 +66,7 @@ config:
   misc_cache: /mnt/dev/spack/cache/misc
 YAML
 
-  cat > "$cfg_dir/modules.yaml" <<'YAML'
+  cat >"$cfg_dir/modules.yaml" <<'YAML'
 modules:
   default:
     enable:
@@ -81,27 +82,27 @@ YAML
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --help|-h)
-      usage
-      exit 0
-      ;;
-    --image)
-      IMAGE_PATH="$2"
-      shift 2
-      ;;
-    --state-dir)
-      STATE_DIR="$2"
-      shift 2
-      ;;
-    --)
-      shift
-      bootstrap_specs=("$@")
-      break
-      ;;
-    *)
-      bootstrap_specs+=("$1")
-      shift
-      ;;
+  --help | -h)
+    usage
+    exit 0
+    ;;
+  --image)
+    IMAGE_PATH="$2"
+    shift 2
+    ;;
+  --state-dir)
+    STATE_DIR="$2"
+    shift 2
+    ;;
+  --)
+    shift
+    bootstrap_specs=("$@")
+    break
+    ;;
+  *)
+    bootstrap_specs+=("$1")
+    shift
+    ;;
   esac
 done
 
@@ -123,6 +124,7 @@ apptainer_args=(
   --home "$HOME:$CONTAINER_HOME"
   --bind "$STATE_DIR:$STATE_BIND_TARGET"
   --bind "$STATE_DIR/.module:$MODULE_COLLECTIONS_TARGET"
+  --bind "$STATE_DIR/spack/cache/opt-spack-var-cache:/opt/spack/var/spack/cache"
   --env "APPTAINER_DEV_MOUNT=$STATE_BIND_TARGET"
   --env "APPTAINER_DEV_STATE_DIR=$STATE_BIND_TARGET/spack"
 )

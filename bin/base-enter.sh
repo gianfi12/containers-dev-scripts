@@ -176,6 +176,7 @@ if [[ "$USE_STATE" -eq 1 ]]; then
     apptainer_args+=(--env "APPTAINER_DEV_MOUNT=$DEV_MOUNT_TARGET")
     apptainer_args+=(--env "APPTAINER_DEV_STATE_DIR=$DEV_MOUNT_TARGET/spack")
     apptainer_args+=(--bind "$STATE_DIR/.module:$MODULE_COLLECTIONS_MOUNT")
+    apptainer_args+=(--bind "$STATE_DIR/spack/cache/opt-spack-var-cache:/opt/spack/var/spack/cache")
   else
     [[ -n "$STATE_DIR" ]] || STATE_DIR="$ROOT_DIR/.apptainer-spack"
     mkdir -p "$STATE_DIR"
