@@ -6,6 +6,18 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_PATH="${IMAGE_PATH:-$ROOT_DIR/images/base.sif}"
 DEF_PATH="${DEF_PATH:-$ROOT_DIR/defs/base.def}"
 
+CONTAINER_CLI="${CONTAINER_CLI:-}"
+if [[ -z "$CONTAINER_CLI" ]]; then
+  if command -v apptainer >/dev/null 2>&1; then
+    CONTAINER_CLI="apptainer"
+  elif command -v singularity >/dev/null 2>&1; then
+    CONTAINER_CLI="singularity"
+  else
+    echo "Error: neither 'apptainer' nor 'singularity' found in PATH." >&2
+    exit 1
+  fi
+fi
+
 usage() {
   cat <<EOF
 Usage:
@@ -44,4 +56,4 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-exec apptainer build "${apptainer_args[@]}" "$IMAGE_PATH" "$DEF_PATH"
+exec "$CONTAINER_CLI" build "${apptainer_args[@]}" "$IMAGE_PATH" "$DEF_PATH"

@@ -3,6 +3,19 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_PATH="${IMAGE_PATH:-$ROOT_DIR/images/base.sif}"
+
+CONTAINER_CLI="${CONTAINER_CLI:-}"
+if [[ -z "$CONTAINER_CLI" ]]; then
+  if command -v apptainer >/dev/null 2>&1; then
+    CONTAINER_CLI="apptainer"
+  elif command -v singularity >/dev/null 2>&1; then
+    CONTAINER_CLI="singularity"
+  else
+    echo "Error: neither 'apptainer' nor 'singularity' found in PATH." >&2
+    exit 1
+  fi
+fi
+
 CONTAINER_HOME="/home/$USER"
 STATE_BIND_TARGET="${STATE_BIND_TARGET:-/mnt/dev}"
 MODULE_COLLECTIONS_TARGET="${MODULE_COLLECTIONS_TARGET:-$CONTAINER_HOME/.module}"
@@ -133,7 +146,7 @@ apptainer_args=(
 )
 
 cmd=(
-  apptainer exec
+  "$CONTAINER_CLI" exec
   "${apptainer_args[@]}"
   "$IMAGE_PATH"
   /usr/local/bin/dev-bootstrap-spack-state
@@ -148,7 +161,7 @@ print_command "${cmd[@]}"
 "${cmd[@]}"
 
 refresh_cmd=(
-  apptainer exec
+  "$CONTAINER_CLI" exec
   "${apptainer_args[@]}"
   "$IMAGE_PATH"
   bash -lc 'spack module tcl refresh -y >/dev/null 2>&1 || true'
