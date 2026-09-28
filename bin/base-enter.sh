@@ -77,11 +77,15 @@ init_mount_state_layout() {
   local mount_dir="$1"
   mkdir -p \
     "$mount_dir/spack" \
+    "$mount_dir/spack/cache/opt-spack-var-cache" \
     "$mount_dir/.module" \
     "$mount_dir/venvs" \
     "$mount_dir/work" \
     "$mount_dir/scratch" \
-    "$mount_dir/opt"
+    "$mount_dir/opt" \
+    "$mount_dir/.local/share" \
+    "$mount_dir/.local/state" \
+    "$mount_dir/.cache"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -175,7 +179,11 @@ if [[ "$USE_STATE" -eq 1 ]]; then
     apptainer_args+=(--bind "$STATE_DIR:$DEV_MOUNT_TARGET")
     apptainer_args+=(--env "APPTAINER_DEV_MOUNT=$DEV_MOUNT_TARGET")
     apptainer_args+=(--env "APPTAINER_DEV_STATE_DIR=$DEV_MOUNT_TARGET/spack")
+    apptainer_args+=(--env "XDG_DATA_HOME=$DEV_MOUNT_TARGET/.local/share")
+    apptainer_args+=(--env "XDG_STATE_HOME=$DEV_MOUNT_TARGET/.local/state")
+    apptainer_args+=(--env "XDG_CACHE_HOME=$DEV_MOUNT_TARGET/.cache")
     apptainer_args+=(--bind "$STATE_DIR/.module:$MODULE_COLLECTIONS_MOUNT")
+    mkdir -p "$STATE_DIR/spack/cache/opt-spack-var-cache"
     apptainer_args+=(--bind "$STATE_DIR/spack/cache/opt-spack-var-cache:/opt/spack/var/spack/cache")
   else
     [[ -n "$STATE_DIR" ]] || STATE_DIR="$ROOT_DIR/.apptainer-spack"

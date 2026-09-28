@@ -57,23 +57,47 @@ fi
 
 mkdir -p \
   "$STATE_DIR/spack/config" \
-  "$STATE_DIR/spack/cache" \
+  "$STATE_DIR/spack/cache/opt-spack-var-cache" \
   "$STATE_DIR/spack/environments/default" \
   "$STATE_DIR/spack/modules" \
   "$STATE_DIR/spack/stage" \
+  "$STATE_DIR/spack/opt" \
   "$STATE_DIR/.module" \
   "$STATE_DIR/venvs" \
   "$STATE_DIR/work" \
   "$STATE_DIR/scratch" \
   "$STATE_DIR/opt" \
+  "$STATE_DIR/.local/share" \
+  "$STATE_DIR/.local/state" \
+  "$STATE_DIR/.cache" \
   "$STATE_DIR/data"
 
 CONFIG_FILE="$STATE_DIR/spack/config/config.yaml"
 if [[ ! -f "$CONFIG_FILE" ]]; then
   cat > "$CONFIG_FILE" <<'YAML'
 config:
+  install_tree:
+    root: /mnt/dev/spack/store
   build_stage:
   - /mnt/dev/spack/stage
+  environments_root: /mnt/dev/spack/environments
+  source_cache: /mnt/dev/spack/cache/source
+  misc_cache: /mnt/dev/spack/cache/misc
+YAML
+fi
+
+MODULES_FILE="$STATE_DIR/spack/config/modules.yaml"
+if [[ ! -f "$MODULES_FILE" ]]; then
+  cat > "$MODULES_FILE" <<'YAML'
+modules:
+  default:
+    enable:
+      - tcl
+    roots:
+      tcl: /mnt/dev/spack/modules
+    arch_folder: false
+    tcl:
+      hide_implicits: true
 YAML
 fi
 

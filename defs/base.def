@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: registry.fedoraproject.org/fedora-minimal:40
+From: registry.fedoraproject.org/fedora-minimal:41
 
 %labels
     Author gaccordi
@@ -44,7 +44,7 @@ From: registry.fedoraproject.org/fedora-minimal:40
     support/90-apptainer-dev-base.fish /etc/fish/conf.d/90-apptainer-dev-base.fish
 
 %environment
-    export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/spack/bin
     export EDITOR=nvim
 
 %post
@@ -66,11 +66,13 @@ From: registry.fedoraproject.org/fedora-minimal:40
         python3-pip \
         python3-rpm \
         zsh \
-	      fish \
+        fish \
         fastfetch \
         eza \
         tmux \
         vim-enhanced \
+        nodejs \
+        nodejs-npm \
         kitty \
         ImageMagick \
         bubblewrap \
@@ -111,14 +113,50 @@ From: registry.fedoraproject.org/fedora-minimal:40
         environment-modules
     "$PM" clean all || true
 
-    NODE_BASE_URL="https://nodejs.org/download/release/latest-v22.x"
-    NODE_TARBALL="$(curl -fsSL "${NODE_BASE_URL}/SHASUMS256.txt" | awk '/linux-x64.tar.xz$/ { print $2; exit }')"
-    NODE_SHA256="$(curl -fsSL "${NODE_BASE_URL}/SHASUMS256.txt" | awk -v tarball="$NODE_TARBALL" '$2 == tarball { print $1; exit }')"
-    curl -fsSL -o "/tmp/${NODE_TARBALL}" "${NODE_BASE_URL}/${NODE_TARBALL}"
-    printf '%s  %s\n' "${NODE_SHA256}" "/tmp/${NODE_TARBALL}" | sha256sum -c -
-    rm -rf /usr/local/lib/node_modules /usr/local/include/node /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx
-    tar -C /usr/local --strip-components=1 -xJf "/tmp/${NODE_TARBALL}"
-    rm -f "/tmp/${NODE_TARBALL}"
+    mkdir -p /opt /workspace
+
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        x86_64)
+            NVIM_ARCH="x86_64"
+            LAZYGIT_ARCH="x86_64"
+            YAZI_ARCH="x86_64-unknown-linux-gnu"
+            ;;
+        aarch64|arm64)
+            NVIM_ARCH="arm64"
+            LAZYGIT_ARCH="arm64"
+            YAZI_ARCH="aarch64-unknown-linux-gnu"
+            ;;
+        *)
+            echo "Unsupported architecture: $ARCH" >&2
+            exit 1
+            ;;
+    esac
+
+    NVIM_VERSION="0.12.5"
+    curl -fsSL -o /tmp/nvim.tar.gz \
+        "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/nvim-linux-${NVIM_ARCH}.tar.gz"
+    rm -rf /opt/nvim-linux-*
+    tar -C /opt -xzf /tmp/nvim.tar.gz
+    ln -sf "/opt/nvim-linux-${NVIM_ARCH}/bin/nvim" /usr/local/bin/nvim
+    ln -sf "/opt/nvim-linux-${NVIM_ARCH}/bin/nvim" /usr/local/bin/neovim
+    rm -f /tmp/nvim.tar.gz
+
+    LAZYGIT_VERSION="0.61.1"
+    curl -fsSL -o /tmp/lazygit.tar.gz \
+        "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_${LAZYGIT_ARCH}.tar.gz"
+    tar -C /usr/local/bin -xzf /tmp/lazygit.tar.gz lazygit
+    chmod 0755 /usr/local/bin/lazygit
+    rm -f /tmp/lazygit.tar.gz
+
+    curl -fsSL -o /tmp/yazi.zip \
+        "https://github.com/sxyazi/yazi/releases/latest/download/yazi-${YAZI_ARCH}.zip"
+    unzip -q -j /tmp/yazi.zip "*/yazi" "*/ya" -d /usr/local/bin
+    chmod 0755 /usr/local/bin/yazi /usr/local/bin/ya
+    rm -f /tmp/yazi.zip
+
+    curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /usr/local/bin
+    chmod 0755 /usr/local/bin/agy
 
     npm install -g \
         @openai/codex \
@@ -132,27 +170,6 @@ From: registry.fedoraproject.org/fedora-minimal:40
         pynvim \
         black \
         ruff
-
-    LAZYGIT_VERSION="0.61.1"
-    LAZYGIT_TARBALL="lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz"
-    LAZYGIT_CHECKSUMS_URL="https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/checksums.txt"
-    LAZYGIT_SHA256="$(curl -fsSL "${LAZYGIT_CHECKSUMS_URL}" | awk -v tarball="${LAZYGIT_TARBALL}" '$2 == tarball { print $1; exit }')"
-    curl -fsSL -o "/tmp/${LAZYGIT_TARBALL}" \
-        "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/${LAZYGIT_TARBALL}"
-    printf '%s  %s\n' "${LAZYGIT_SHA256}" "/tmp/${LAZYGIT_TARBALL}" | sha256sum -c -
-    tar -C /usr/local/bin -xzf "/tmp/${LAZYGIT_TARBALL}" lazygit
-    chmod 0755 /usr/local/bin/lazygit
-    rm -f "/tmp/${LAZYGIT_TARBALL}"
-
-    NVIM_VERSION="0.12.1"
-    curl -fsSL \
-        -o /tmp/nvim-linux-x86_64.tar.gz \
-        "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/nvim-linux-x86_64.tar.gz"
-    rm -rf /opt/nvim-linux-x86_64
-    mkdir -p /opt /workspace
-    tar -C /opt -xzf /tmp/nvim-linux-x86_64.tar.gz
-    ln -sf /opt/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
-    rm -f /tmp/nvim-linux-x86_64.tar.gz
 
     SPACK_IMAGE_REF="develop"
     rm -rf /opt/spack
@@ -187,6 +204,14 @@ ZSHRC
     command -v tmux >/dev/null
     command -v vim >/dev/null
     command -v nvim >/dev/null
+    command -v node >/dev/null
+    command -v npm >/dev/null
+    command -v lazygit >/dev/null
+    command -v yazi >/dev/null
+    command -v ya >/dev/null
+    command -v codex >/dev/null
+    command -v claude >/dev/null
+    command -v agy >/dev/null
     command -v btop >/dev/null
     command -v nvtop >/dev/null
     command -v module >/dev/null

@@ -49,6 +49,9 @@ init_state_layout() {
     "$root/scratch" \
     "$root/opt" \
     "$root/spack/cache/opt-spack-var-cache" \
+    "$root/.local/share" \
+    "$root/.local/state" \
+    "$root/.cache" \
     "$root/data"
 }
 

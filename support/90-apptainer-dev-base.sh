@@ -18,10 +18,21 @@ if [ -n "${APPTAINER_DEV_STATE_DIR}" ]; then
     export SPACK_USER_CACHE_PATH="${SPACK_USER_CACHE_PATH:-${APPTAINER_DEV_STATE_DIR}/cache}"
 
     if [ -n "${APPTAINER_DEV_MOUNT}" ]; then
-        export APPTAINER_DEV_VENVS="${APPTAINER_DEV_VENVS:-${APPTAINER_DEV_MOUNT}/venvs}"
+        export APPTAINER_DEV_VENVS="${APPTAINER_DEV_MOUNT}/venvs"
+        export XDG_DATA_HOME="${APPTAINER_DEV_MOUNT}/.local/share"
+        export XDG_STATE_HOME="${APPTAINER_DEV_MOUNT}/.local/state"
+        export XDG_CACHE_HOME="${APPTAINER_DEV_MOUNT}/.cache"
     fi
 
     unset SPACK_DISABLE_LOCAL_CONFIG
+else
+    export SPACK_ROOT="${SPACK_ROOT:-/opt/spack}"
+    if [ -d "${SPACK_ROOT}/bin" ]; then
+        case ":${PATH}:" in
+            *:"${SPACK_ROOT}/bin":*) ;;
+            *) export PATH="${SPACK_ROOT}/bin:${PATH}" ;;
+        esac
+    fi
 fi
 
 _apptainer_dev_source_first() {
@@ -85,8 +96,14 @@ if [ -n "${APPTAINER_DEV_STATE_DIR:-}" ] && mkdir -p \
     :
 fi
 
-if [ -n "${APPTAINER_DEV_MOUNT:-}" ] && mkdir -p "${APPTAINER_DEV_VENVS}" 2>/dev/null; then
-    :
+if [ -n "${APPTAINER_DEV_MOUNT:-}" ]; then
+    mkdir -p "${APPTAINER_DEV_VENVS}" "${XDG_DATA_HOME}" "${XDG_STATE_HOME}" "${XDG_CACHE_HOME}" 2>/dev/null || true
+    if [ -d "${XDG_DATA_HOME}/nvim/mason/bin" ]; then
+        case ":${PATH}:" in
+            *:"${XDG_DATA_HOME}/nvim/mason/bin":*) ;;
+            *) export PATH="${XDG_DATA_HOME}/nvim/mason/bin:${PATH}" ;;
+        esac
+    fi
 fi
 
 if [ -n "${APPTAINER_DEV_STATE_DIR:-}" ] && [ -f "${SPACK_ROOT}/share/spack/setup-env.sh" ]; then
