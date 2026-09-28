@@ -17,14 +17,9 @@ if [[ -z "$CONTAINER_CLI" ]]; then
   fi
 fi
 
-CONTAINER_HOME="/home/$USER"
-STATE_MOUNT="${STATE_MOUNT:-$CONTAINER_HOME/.apptainer-spack}"
 DEV_MOUNT_TARGET="${DEV_MOUNT_TARGET:-/mnt/dev}"
-MODULE_COLLECTIONS_MOUNT="${MODULE_COLLECTIONS_MOUNT:-$CONTAINER_HOME/.module}"
 PROFILE_BIND_SOURCE="${PROFILE_BIND_SOURCE:-$ROOT_DIR/support/90-apptainer-dev-base.sh}"
 PROFILE_BIND_TARGET="/etc/profile.d/90-apptainer-dev-base.sh"
-# ZSH_USER_BIND_SOURCE="${ZSH_USER_BIND_SOURCE:-$ROOT_DIR/support/container-zsh-user.zsh}"
-ZSH_USER_BIND_TARGET="/home/$USER/.user.zsh"
 USE_STATE=0
 STATE_MODE=""
 STATE_DIR=""
@@ -49,6 +44,7 @@ Options:
   --spack DIR          Legacy mode: mount DIR as the Spack state root.
   --state DIR          Alias for --spack.
   --no-spack           Do not mount persistent Spack state.
+  --shell SHELL        Launch a specific shell (e.g. bash, fish, zsh).
   --help               Show this help.
 
 Examples:
@@ -129,6 +125,10 @@ while [[ $# -gt 0 ]]; do
     STATE_MODE=""
     shift
     ;;
+  --shell)
+    container_cmd=("$2")
+    shift 2
+    ;;
   --)
     shift
     container_cmd=("$@")
@@ -195,7 +195,9 @@ if [[ "$USE_STATE" -eq 1 ]]; then
     apptainer_args+=(--env "XDG_DATA_HOME=$DEV_MOUNT_TARGET/.local/share")
     apptainer_args+=(--env "XDG_STATE_HOME=$DEV_MOUNT_TARGET/.local/state")
     apptainer_args+=(--env "XDG_CACHE_HOME=$DEV_MOUNT_TARGET/.cache")
-    apptainer_args+=(--bind "$STATE_DIR/.module:$MODULE_COLLECTIONS_MOUNT")
+    if [[ "$AUTO_HOME" -eq 1 && -d "$HOME" ]]; then
+      apptainer_args+=(--bind "$STATE_DIR/.module:$HOME/.module")
+    fi
     mkdir -p "$STATE_DIR/spack/cache/opt-spack-var-cache"
     apptainer_args+=(--bind "$STATE_DIR/spack/cache/opt-spack-var-cache:/opt/spack/var/spack/cache")
   else
@@ -214,17 +216,19 @@ if [[ "$USE_STATE" -eq 1 ]]; then
       echo "  $ROOT_DIR/bin/base-bootstrap-spack.sh --spack \"$STATE_DIR\"" >&2
     fi
 
-    apptainer_args+=(--bind "$STATE_DIR:$STATE_MOUNT")
-    apptainer_args+=(--env "APPTAINER_DEV_STATE_DIR=$STATE_MOUNT")
+    apptainer_args+=(--bind "$STATE_DIR:$HOME/.apptainer-spack")
+    apptainer_args+=(--env "APPTAINER_DEV_STATE_DIR=$HOME/.apptainer-spack")
     mkdir -p "$STATE_DIR/.module"
-    apptainer_args+=(--bind "$STATE_DIR/.module:$MODULE_COLLECTIONS_MOUNT")
+    if [[ "$AUTO_HOME" -eq 1 && -d "$HOME" ]]; then
+      apptainer_args+=(--bind "$STATE_DIR/.module:$HOME/.module")
+    fi
   fi
 else
   apptainer_args+=(--env APPTAINER_DEV_STATE_DIR=/tmp/.apptainer-spack)
 fi
 
 if [[ "$AUTO_HOME" -eq 1 && -d "$HOME" ]]; then
-  apptainer_args=(--home "$HOME:$CONTAINER_HOME" "${apptainer_args[@]}")
+  apptainer_args=(--home "$HOME" "${apptainer_args[@]}")
 fi
 
 if [[ ${#container_cmd[@]} -gt 0 ]]; then
