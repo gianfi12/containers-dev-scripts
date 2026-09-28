@@ -44,6 +44,7 @@ Options:
   --spack DIR          Legacy mode: mount DIR as the Spack state root.
   --state DIR          Alias for --spack.
   --no-spack           Do not mount persistent Spack state.
+  --bind, -B SRC[:DST] Bind mount host directories inside the container.
   --shell SHELL        Launch a specific shell (e.g. bash, fish, zsh).
   --help               Show this help.
 
@@ -51,12 +52,13 @@ Examples:
   $(basename "$0")
   $(basename "$0") --mount-state "\$PWD/mounts/fedora"
   $(basename "$0") --spack "\$PWD/.apptainer-spack"
-  $(basename "$0") --mount-state "\$PWD/mounts/fedora" -- bash -lc 'spack find'
   $(basename "$0") --mount-state "\$PWD/mounts/fedora" --bind "\$PWD/project:/workspace" --pwd /workspace
+  $(basename "$0") --mount-state "\$PWD/mounts/fedora" -B /hs/work0:/hs/work0
+  $(basename "$0") --mount-state "\$PWD/mounts/fedora" -- bash -lc 'spack find'
 
 Notes:
-  Unknown flags are forwarded to Apptainer.
-  The host home is mounted by default at /home/$USER.
+  Unknown flags and --bind/-B options are forwarded directly to the container runtime.
+  The host home is mounted by default at \$HOME.
   Use \`--no-home\` if you explicitly want to disable that.
   Use \`--\` before a container command.
 EOF
@@ -94,7 +96,13 @@ init_mount_state_layout() {
     "$mount_dir/opt" \
     "$mount_dir/.local/share" \
     "$mount_dir/.local/state" \
-    "$mount_dir/.cache"
+    "$mount_dir/.cache" \
+    "$mount_dir/.password-store" \
+    "$mount_dir/.codex"
+  if [[ ! -d "$mount_dir/.gnupg" ]]; then
+    mkdir -p "$mount_dir/.gnupg"
+    chmod 700 "$mount_dir/.gnupg"
+  fi
 }
 
 while [[ $# -gt 0 ]]; do

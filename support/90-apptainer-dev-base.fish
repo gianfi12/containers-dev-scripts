@@ -22,7 +22,14 @@ if test -n "$APPTAINER_DEV_STATE_DIR"
         set -gx XDG_DATA_HOME "$APPTAINER_DEV_MOUNT/.local/share"
         set -gx XDG_STATE_HOME "$APPTAINER_DEV_MOUNT/.local/state"
         set -gx XDG_CACHE_HOME "$APPTAINER_DEV_MOUNT/.cache"
-        mkdir -p "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" 2>/dev/null
+        set -q PASSWORD_STORE_DIR; or set -gx PASSWORD_STORE_DIR "$APPTAINER_DEV_MOUNT/.password-store"
+        set -q GNUPGHOME; or set -gx GNUPGHOME "$APPTAINER_DEV_MOUNT/.gnupg"
+        set -q CODEX_HOME; or set -gx CODEX_HOME "$APPTAINER_DEV_MOUNT/.codex"
+        mkdir -p "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$PASSWORD_STORE_DIR" "$CODEX_HOME" 2>/dev/null
+        if not test -d "$GNUPGHOME"
+            mkdir -p "$GNUPGHOME" 2>/dev/null
+            chmod 700 "$GNUPGHOME" 2>/dev/null
+        end
         if test -d "$XDG_DATA_HOME/nvim/mason/bin"
             if not contains "$XDG_DATA_HOME/nvim/mason/bin" $PATH
                 set -gx PATH "$XDG_DATA_HOME/nvim/mason/bin" $PATH

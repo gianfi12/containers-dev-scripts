@@ -22,6 +22,9 @@ if [ -n "${APPTAINER_DEV_STATE_DIR}" ]; then
         export XDG_DATA_HOME="${APPTAINER_DEV_MOUNT}/.local/share"
         export XDG_STATE_HOME="${APPTAINER_DEV_MOUNT}/.local/state"
         export XDG_CACHE_HOME="${APPTAINER_DEV_MOUNT}/.cache"
+        export PASSWORD_STORE_DIR="${PASSWORD_STORE_DIR:-${APPTAINER_DEV_MOUNT}/.password-store}"
+        export GNUPGHOME="${GNUPGHOME:-${APPTAINER_DEV_MOUNT}/.gnupg}"
+        export CODEX_HOME="${CODEX_HOME:-${APPTAINER_DEV_MOUNT}/.codex}"
     fi
 
     unset SPACK_DISABLE_LOCAL_CONFIG

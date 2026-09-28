@@ -74,7 +74,17 @@ From: registry.fedoraproject.org/fedora-minimal:41
         nodejs \
         nodejs-npm \
         kitty \
+        kitty-kitten \
+        kitty-terminfo \
+        poppler-utils \
+        chafa \
+        timg \
         ImageMagick \
+        gopass \
+        gopass-jsonapi \
+        pass \
+        pinentry \
+        libsecret \
         bubblewrap \
         curl \
         ripgrep \
@@ -209,6 +219,12 @@ ZSHRC
     command -v lazygit >/dev/null
     command -v yazi >/dev/null
     command -v ya >/dev/null
+    command -v kitten >/dev/null
+    command -v chafa >/dev/null
+    command -v timg >/dev/null
+    command -v pdftoppm >/dev/null
+    command -v gopass >/dev/null
+    command -v pass >/dev/null
     command -v codex >/dev/null
     command -v claude >/dev/null
     command -v agy >/dev/null
