@@ -159,6 +159,7 @@ done
 }
 
 apptainer_args+=(--bind "$PROFILE_BIND_SOURCE:$PROFILE_BIND_TARGET")
+apptainer_args+=(--no-env HYPRLAND_INSTANCE_SIGNATURE)
 # add_bind_if_exists "$ZSH_USER_BIND_SOURCE" "$ZSH_USER_BIND_TARGET"
 
 if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "${XDG_RUNTIME_DIR}" ]]; then
