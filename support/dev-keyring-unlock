@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+  echo "No private D-Bus session is available." >&2
+  echo "Run this command inside an Apptainer instance." >&2
+  exit 1
+fi
+
+control_dir="${GNOME_KEYRING_CONTROL:-${XDG_RUNTIME_DIR:-/tmp}/keyring}"
+mkdir -p "$control_dir"
+chmod 700 "$control_dir"
+unset GNOME_KEYRING_CONTROL GNOME_KEYRING_PID
+export GNOME_KEYRING_CONTROL="$control_dir"
+eval "$(gnome-keyring-daemon --start \
+  --components=secrets \
+  --control-directory="$control_dir" 2>/dev/null)"
+
+keyring_file="${XDG_DATA_HOME:-${HOME:-/tmp}/.local/share}/keyrings/login.keyring"
+if [[ -e "$keyring_file" ]] && command -v secret-tool >/dev/null 2>&1; then
+  timeout 5s secret-tool lock --collection=login >/dev/null 2>&1 || true
+fi
+
+if [[ -e "$keyring_file" ]]; then
+  read -r -s -p "Local keyring password: " password
+else
+  read -r -s -p "Choose a new local keyring password: " password
+fi
+printf '\n' >&2
+if ! printf '%s\n' "$password" | timeout 10s gnome-keyring-daemon --unlock >/dev/null 2>&1; then
+  unset password
+  echo "Unable to unlock the local keyring." >&2
+  exit 1
+fi
+unset password
+
+if command -v secret-tool >/dev/null 2>&1; then
+  probe_value="apptainer-keyring-probe-${BASHPID:-$$}"
+  if ! printf '%s\n' "$probe_value" | timeout 10s secret-tool store \
+      --label="Apptainer keyring probe" \
+      apptainer-unlock-probe value >/dev/null 2>&1 \
+      || [[ "$(timeout 10s secret-tool lookup apptainer-unlock-probe value 2>/dev/null || true)" != "$probe_value" ]]; then
+    timeout 10s secret-tool clear apptainer-unlock-probe value >/dev/null 2>&1 || true
+    echo "Wrong password or keyring is still locked." >&2
+    exit 1
+  fi
+  timeout 10s secret-tool clear apptainer-unlock-probe value >/dev/null 2>&1 || true
+fi
+
+echo "Local keyring unlocked." >&2

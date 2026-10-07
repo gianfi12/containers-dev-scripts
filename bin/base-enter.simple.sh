@@ -8,6 +8,7 @@ STATE_BIND_TARGET="${STATE_BIND_TARGET:-/mnt/dev}"
 MODULE_COLLECTIONS_TARGET="${MODULE_COLLECTIONS_TARGET:-$CONTAINER_HOME/.module}"
 STATE_DIR=""
 AUTO_HOME=1
+NO_SSH_AGENT=0
 apptainer_args=()
 container_cmd=()
 
@@ -22,6 +23,7 @@ Required:
 Optional:
   --image PATH      Use a different image
   --no-home         Do not mount your home directory
+  --no-ssh-agent    Do not forward the host SSH_AUTH_SOCK
   --help            Show this help
 
 Behavior:
@@ -66,6 +68,10 @@ while [[ $# -gt 0 ]]; do
     apptainer_args+=(--no-home)
     shift
     ;;
+  --no-ssh-agent)
+    NO_SSH_AGENT=1
+    shift
+    ;;
   --)
     shift
     container_cmd=("$@")
@@ -94,9 +100,23 @@ fi
   exit 1
 }
 
-if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "${XDG_RUNTIME_DIR}" ]]; then
-  apptainer_args+=(--env "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}")
-  add_bind_if_exists "${XDG_RUNTIME_DIR}"
+apptainer_args+=(--no-env XDG_RUNTIME_DIR)
+apptainer_args+=(--no-env DBUS_SESSION_BUS_ADDRESS)
+apptainer_args+=(--no-env GNOME_KEYRING_CONTROL)
+apptainer_args+=(--no-env GNOME_KEYRING_PID)
+apptainer_args+=(--no-env SSH_AUTH_SOCK)
+
+if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+  apptainer_args+=(--env "WAYLAND_DISPLAY=${WAYLAND_DISPLAY}")
+  if [[ -n "${XDG_RUNTIME_DIR:-}" && -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]]; then
+    apptainer_args+=(--bind "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY:$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY")
+    apptainer_args+=(--env "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR")
+  fi
+fi
+
+if [[ "$NO_SSH_AGENT" -eq 0 && -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
+  apptainer_args+=(--bind "$SSH_AUTH_SOCK:/tmp/apptainer-dev-ssh-agent.sock")
+  apptainer_args+=(--env SSH_AUTH_SOCK=/tmp/apptainer-dev-ssh-agent.sock)
 fi
 
 if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then

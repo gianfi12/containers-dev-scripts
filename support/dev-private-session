@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="session"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --persistent) mode="persistent"; shift ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+
+runtime_dir="${APPTAINER_DEV_RUNTIME_DIR:-}"
+managed_runtime=1
+if [[ -z "$runtime_dir" && -n "${XDG_RUNTIME_DIR:-}" ]]; then
+  # Keep the existing value for explicitly forwarded graphics sockets, but
+  # place all private session state under /tmp.
+  runtime_dir="$XDG_RUNTIME_DIR"
+  managed_runtime=0
+elif [[ -z "$runtime_dir" ]]; then
+  if [[ "$mode" == persistent ]]; then
+    runtime_dir="/run/user/${UID:-$(id -u)}"
+  else
+    runtime_dir="/tmp/apptainer-dev-runtime-${UID:-$(id -u)}-$$"
+  fi
+fi
+if [[ "$managed_runtime" -eq 1 ]]; then
+  mkdir -p "$runtime_dir"
+  chmod 700 "$runtime_dir"
+fi
+
+if [[ -n "${APPTAINER_DEV_BUS_DIR:-}" ]]; then
+  bus_runtime="$APPTAINER_DEV_BUS_DIR"
+elif [[ -n "${APPTAINER_DEV_RUNTIME_DIR:-}" ]]; then
+  bus_runtime="$runtime_dir"
+else
+  bus_runtime="/tmp/apptainer-dev-bus-${UID:-$(id -u)}-$$"
+fi
+mkdir -p "$bus_runtime"
+chmod 700 "$bus_runtime"
+if [[ "$managed_runtime" -eq 1 ]]; then
+export XDG_RUNTIME_DIR="$runtime_dir"
+fi
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$bus_runtime/bus"
+
+if [[ ! -S "$bus_runtime/bus" ]]; then
+  rm -f "$bus_runtime/bus" "$bus_runtime/dbus.pid"
+  dbus_pid="$(dbus-daemon --session \
+    --address="$DBUS_SESSION_BUS_ADDRESS" \
+    --fork --nopidfile --print-pid=1)"
+  printf '%s\n' "$dbus_pid" >"$bus_runtime/dbus.pid"
+else
+  dbus_pid=""
+fi
+
+cleanup() {
+  if [[ -n "${dbus_pid:-}" ]]; then
+    kill "$dbus_pid" 2>/dev/null || true
+  fi
+  # Apptainer owns scratch mounts and removes them after the payload exits.
+  # Removing the runtime directory here can fail while Wayland's socket is
+  # still a bind mount (EBUSY). Only remove a non-scratch private bus dir.
+  if [[ -z "${APPTAINER_DEV_RUNTIME_DIR:-}" && "$bus_runtime" == /tmp/apptainer-dev-bus-* ]]; then
+    rm -rf "$bus_runtime"
+  fi
+}
+trap cleanup EXIT HUP INT TERM
+
+if [[ "$mode" == persistent ]]; then
+  exec tail -f /dev/null
+fi
+
+if [[ $# -gt 0 ]]; then
+  "$@"
+  exit $?
+fi
+bash -l

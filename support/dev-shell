@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${APPTAINER_DEV_SESSION_STARTED:-0}" != 1 && -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]] \
+   && command -v /usr/local/bin/dev-private-session >/dev/null 2>&1; then
+    export APPTAINER_DEV_SESSION_STARTED=1
+    exec /usr/local/bin/dev-private-session -- /usr/local/bin/dev-shell "$@"
+fi
+
 if [[ -f /etc/profile.d/90-apptainer-dev-base.sh ]]; then
     # Load the mounted Spack state and module path before running commands.
     source /etc/profile.d/90-apptainer-dev-base.sh
 fi
 
 if [[ $# -gt 0 ]]; then
+    # Preserve the caller's explicit shell invocation and its normal config.
+    # This keeps existing Fish/Bash/Zsh setups and interactive keybindings
+    # unchanged.
     exec "$@"
 fi
 

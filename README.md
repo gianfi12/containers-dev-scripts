@@ -39,6 +39,22 @@ Run one command inside the container:
 
 The wrapper prints the exact `apptainer` command before executing it.
 
+By default the wrapper forwards only the host `SSH_AUTH_SOCK` socket, which
+allows Bitwarden SSH Agent to keep working without forwarding the host
+`XDG_RUNTIME_DIR`. Disable that behavior with `--no-ssh-agent`.
+
+The container starts a private D-Bus session and a local GNOME Keyring. The
+keyring data is stored under `.local/share/keyrings` in the state mount and is
+not connected to the host keyring. Unlock it manually when needed:
+
+```bash
+keyring-unlock
+```
+
+Inside the container, `keyring-unlock` starts GNOME Keyring and lets it prompt
+for the password. On first use, the password you enter creates the persistent
+local keyring; after an instance restart, run the same command again.
+
 ## Raw Apptainer Command
 
 The wrapper is preferred, but the equivalent shape is:
@@ -296,6 +312,32 @@ mounts/fedora/
 ```
 
 If you later bake only these configs into the image, place them under a neutral path such as `/opt/dev-config/nvim` and `/opt/dev-config/tmux`, then symlink or point tools to them at shell startup. Do not bake machine-specific home config or secrets into the image.
+
+## Persistent Apptainer instances
+
+Instances use the same image, home, state, project binds, graphical sockets,
+private D-Bus, GNOME Keyring, and SSH agent behavior as `base-enter.sh`:
+
+```bash
+./bin/base-instance-start.sh \
+  --instance hpc-dev \
+  --mount-state "$PWD/mounts/fedora"
+
+./bin/base-enter.sh --instance hpc-dev
+# Inside the instance:
+keyring-unlock
+./bin/base-enter.sh --instance hpc-dev -- bash -lc 'spack find'
+./bin/base-instance-stop.sh --instance hpc-dev
+```
+
+Use `--no-ssh-agent` on `base-instance-start.sh` when the instance must not
+see the host agent. Multiple SSH sessions or host tmux panes can enter the
+same instance and share its already-unlocked keyring. The instance is local
+to the current host and user; it is not shared between HPC nodes.
+
+The image must be rebuilt after changes to `defs/base.def`: the persistent
+instance start script requires `dbus-daemon` and `gnome-keyring` inside the
+image. Existing state mounts are retained across the rebuild.
 
 ## New Images
 

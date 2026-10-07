@@ -22,8 +22,6 @@ if [ -n "${APPTAINER_DEV_STATE_DIR}" ]; then
         export XDG_DATA_HOME="${APPTAINER_DEV_MOUNT}/.local/share"
         export XDG_STATE_HOME="${APPTAINER_DEV_MOUNT}/.local/state"
         export XDG_CACHE_HOME="${APPTAINER_DEV_MOUNT}/.cache"
-        export PASSWORD_STORE_DIR="${PASSWORD_STORE_DIR:-${APPTAINER_DEV_MOUNT}/.password-store}"
-        export GNUPGHOME="${GNUPGHOME:-${APPTAINER_DEV_MOUNT}/.gnupg}"
         export CODEX_HOME="${CODEX_HOME:-${APPTAINER_DEV_MOUNT}/.codex}"
     fi
 
@@ -108,6 +106,26 @@ if [ -n "${APPTAINER_DEV_MOUNT:-}" ]; then
         esac
     fi
 fi
+
+# Keep Codex credentials in the private GNOME Keyring.  This is deliberately
+# configuration-only: the keyring is still started and unlocked manually by
+# keyring-unlock when it is needed.
+_apptainer_dev_configure_codex_keyring() {
+    [ -n "${CODEX_HOME:-}" ] || return 0
+
+    mkdir -p "${CODEX_HOME}" 2>/dev/null || return 0
+    config_file="${CODEX_HOME}/config.toml"
+
+    if [ -f "${config_file}" ] && grep -qE '^[[:space:]]*cli_auth_credentials_store[[:space:]]*=' "${config_file}"; then
+        sed -i 's/^[[:space:]]*cli_auth_credentials_store[[:space:]]*=.*/cli_auth_credentials_store = "keyring"/' "${config_file}" 2>/dev/null || true
+    else
+        printf '\ncli_auth_credentials_store = "keyring"\n' >> "${config_file}" 2>/dev/null || true
+    fi
+
+    unset config_file
+}
+
+_apptainer_dev_configure_codex_keyring
 
 if [ -n "${APPTAINER_DEV_STATE_DIR:-}" ] && [ -f "${SPACK_ROOT}/share/spack/setup-env.sh" ]; then
     _apptainer_dev_prepare_zsh_bash_completion

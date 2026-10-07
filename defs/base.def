@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: registry.fedoraproject.org/fedora-minimal:41
+From: registry.fedoraproject.org/fedora-minimal:40
 
 %labels
     Author gaccordi
@@ -41,6 +41,9 @@ From: registry.fedoraproject.org/fedora-minimal:41
     support/90-apptainer-dev-base.sh /etc/profile.d/90-apptainer-dev-base.sh
     support/dev-bootstrap-spack-state /usr/local/bin/dev-bootstrap-spack-state
     support/dev-shell /usr/local/bin/dev-shell
+    support/dev-private-session /usr/local/bin/dev-private-session
+    support/dev-instance-start /usr/local/bin/dev-instance-start
+    support/dev-keyring-unlock /usr/local/bin/keyring-unlock
     support/90-apptainer-dev-base.fish /etc/fish/conf.d/90-apptainer-dev-base.fish
 
 %environment
@@ -80,10 +83,8 @@ From: registry.fedoraproject.org/fedora-minimal:41
         chafa \
         timg \
         ImageMagick \
-        gopass \
-        gopass-jsonapi \
-        pass \
-        pinentry \
+        dbus-daemon \
+        gnome-keyring \
         libsecret \
         bubblewrap \
         curl \
@@ -187,7 +188,12 @@ From: registry.fedoraproject.org/fedora-minimal:41
     chmod -R a+rX /opt/spack
 
     chmod 0644 /etc/profile.d/90-apptainer-dev-base.sh
-    chmod 0755 /usr/local/bin/dev-bootstrap-spack-state /usr/local/bin/dev-shell
+    chmod 0755 \
+        /usr/local/bin/dev-bootstrap-spack-state \
+        /usr/local/bin/dev-shell \
+        /usr/local/bin/dev-private-session \
+        /usr/local/bin/dev-instance-start \
+        /usr/local/bin/keyring-unlock
 
     if [ -f /etc/zshrc ]; then
         if ! grep -q '90-apptainer-dev-base.sh' /etc/zshrc; then
@@ -208,6 +214,9 @@ ZSHRC
 %runscript
     exec /usr/local/bin/dev-shell "$@"
 
+%startscript
+    exec /usr/local/bin/dev-instance-start "$@"
+
 %test
     set -e
     command -v zsh >/dev/null
@@ -223,8 +232,8 @@ ZSHRC
     command -v chafa >/dev/null
     command -v timg >/dev/null
     command -v pdftoppm >/dev/null
-    command -v gopass >/dev/null
-    command -v pass >/dev/null
+    command -v dbus-daemon >/dev/null
+    command -v gnome-keyring-daemon >/dev/null
     command -v codex >/dev/null
     command -v claude >/dev/null
     command -v agy >/dev/null

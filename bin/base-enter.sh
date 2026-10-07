@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_PATH="${IMAGE_PATH:-$ROOT_DIR/images/base.sif}"
+. "$ROOT_DIR/bin/base-runtime-common.sh"
 
 CONTAINER_CLI="${CONTAINER_CLI:-}"
 if [[ -z "$CONTAINER_CLI" ]]; then
@@ -24,13 +25,8 @@ USE_STATE=0
 STATE_MODE=""
 STATE_DIR=""
 AUTO_HOME=1
-
-add_bind_if_exists() {
-  local source_path="$1"
-  local target_path="${2:-$1}"
-  [[ -e "$source_path" ]] || return 0
-  apptainer_args+=(--bind "$source_path:$target_path")
-}
+NO_SSH_AGENT=0
+INSTANCE_NAME=""
 
 usage() {
   cat <<EOF
@@ -44,6 +40,10 @@ Options:
   --spack DIR          Legacy mode: mount DIR as the Spack state root.
   --state DIR          Alias for --spack.
   --no-spack           Do not mount persistent Spack state.
+  --no-ssh-agent       Do not forward the host SSH_AUTH_SOCK.
+  --instance NAME      Execute in an existing Apptainer instance.
+  --nv, --nvidia       Enable NVIDIA support (must be set when starting an instance).
+  --rocm, --amd        Enable AMD ROCm support (must be set when starting an instance).
   --bind, -B SRC[:DST] Bind mount host directories inside the container.
   --shell SHELL        Launch a specific shell (e.g. bash, fish, zsh).
   --help               Show this help.
@@ -55,6 +55,7 @@ Examples:
   $(basename "$0") --mount-state "\$PWD/mounts/fedora" --bind "\$PWD/project:/workspace" --pwd /workspace
   $(basename "$0") --mount-state "\$PWD/mounts/fedora" -B /hs/work0:/hs/work0
   $(basename "$0") --mount-state "\$PWD/mounts/fedora" -- bash -lc 'spack find'
+  $(basename "$0") --instance hpc-dev
 
 Notes:
   Unknown flags and --bind/-B options are forwarded directly to the container runtime.
@@ -73,36 +74,6 @@ print_command() {
     printf ' %q' "$arg" >&2
   done
   printf '\n' >&2
-}
-
-state_uses_legacy_mount() {
-  local state_dir="$1"
-  [[ -d "$state_dir" ]] || return 1
-
-  rg -q '/apptainer-dev-state' \
-    "$state_dir/config" \
-    "$state_dir/environments" >/dev/null 2>&1
-}
-
-init_mount_state_layout() {
-  local mount_dir="$1"
-  mkdir -p \
-    "$mount_dir/spack" \
-    "$mount_dir/spack/cache/opt-spack-var-cache" \
-    "$mount_dir/.module" \
-    "$mount_dir/venvs" \
-    "$mount_dir/work" \
-    "$mount_dir/scratch" \
-    "$mount_dir/opt" \
-    "$mount_dir/.local/share" \
-    "$mount_dir/.local/state" \
-    "$mount_dir/.cache" \
-    "$mount_dir/.password-store" \
-    "$mount_dir/.codex"
-  if [[ ! -d "$mount_dir/.gnupg" ]]; then
-    mkdir -p "$mount_dir/.gnupg"
-    chmod 700 "$mount_dir/.gnupg"
-  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -133,6 +104,22 @@ while [[ $# -gt 0 ]]; do
     STATE_MODE=""
     shift
     ;;
+  --no-ssh-agent)
+    NO_SSH_AGENT=1
+    shift
+    ;;
+  --instance)
+    INSTANCE_NAME="$2"
+    shift 2
+    ;;
+  --nvidia)
+    apptainer_args+=(--nv)
+    shift
+    ;;
+  --amd)
+    apptainer_args+=(--rocm)
+    shift
+    ;;
   --shell)
     container_cmd=("$2")
     shift 2
@@ -158,87 +145,53 @@ done
   exit 1
 }
 
-apptainer_args+=(--bind "$PROFILE_BIND_SOURCE:$PROFILE_BIND_TARGET")
-apptainer_args+=(--no-env HYPRLAND_INSTANCE_SIGNATURE)
-# add_bind_if_exists "$ZSH_USER_BIND_SOURCE" "$ZSH_USER_BIND_TARGET"
+# Never use the host /run/user tree or /tmp as the container runtime directory.
+# Apptainer creates this scratch directory writable by the container user.
+CONTAINER_XDG_RUNTIME_DIR="/tmp/apptainer-dev-runtime"
+apptainer_args+=(--scratch "$CONTAINER_XDG_RUNTIME_DIR")
+apptainer_args+=(--env "APPTAINER_DEV_RUNTIME_DIR=$CONTAINER_XDG_RUNTIME_DIR")
 
-if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "${XDG_RUNTIME_DIR}" ]]; then
-  apptainer_args+=(--env "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}")
-  add_bind_if_exists "${XDG_RUNTIME_DIR}"
-fi
-
-if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
-  apptainer_args+=(--env "WAYLAND_DISPLAY=${WAYLAND_DISPLAY}")
-fi
-
-if [[ -n "${DISPLAY:-}" ]]; then
-  apptainer_args+=(--env "DISPLAY=${DISPLAY}")
-  add_bind_if_exists /tmp/.X11-unix
-fi
-
-if [[ -n "${XAUTHORITY:-}" ]]; then
-  apptainer_args+=(--env "XAUTHORITY=${XAUTHORITY}")
-  add_bind_if_exists "${XAUTHORITY}"
-fi
-
-if [[ "$USE_STATE" -eq 1 ]]; then
-  if [[ "$STATE_MODE" == "mount" ]]; then
-    [[ -n "$STATE_DIR" ]] || STATE_DIR="$ROOT_DIR/mounts/fedora"
-    init_mount_state_layout "$STATE_DIR"
-
-    if state_uses_legacy_mount "$STATE_DIR/spack"; then
-      echo "Spack state at $STATE_DIR/spack still references the obsolete /apptainer-dev-state prefix." >&2
-      echo "Delete that state directory and bootstrap it again so installs use $DEV_MOUNT_TARGET/spack." >&2
-      exit 1
+if [[ -n "$INSTANCE_NAME" ]]; then
+  for arg in "${apptainer_args[@]}"; do
+    if [[ "$arg" == "--nv" || "$arg" == "--rocm" ]]; then
+      echo "GPU flags must be passed to base-instance-start.sh, not base-enter.sh --instance." >&2
+      exit 2
     fi
-
-    if [[ ! -f "$STATE_DIR/spack/environments/default/spack.yaml" ]]; then
-      echo "Spack state at $STATE_DIR/spack is not initialized yet." >&2
-      echo "Initialize it with:" >&2
-      echo "  $ROOT_DIR/bin/base-bootstrap-spack.sh --mount-state \"$STATE_DIR\"" >&2
-    fi
-
-    apptainer_args+=(--bind "$STATE_DIR:$DEV_MOUNT_TARGET")
-    apptainer_args+=(--env "APPTAINER_DEV_MOUNT=$DEV_MOUNT_TARGET")
-    apptainer_args+=(--env "APPTAINER_DEV_STATE_DIR=$DEV_MOUNT_TARGET/spack")
-    apptainer_args+=(--env "XDG_DATA_HOME=$DEV_MOUNT_TARGET/.local/share")
-    apptainer_args+=(--env "XDG_STATE_HOME=$DEV_MOUNT_TARGET/.local/state")
-    apptainer_args+=(--env "XDG_CACHE_HOME=$DEV_MOUNT_TARGET/.cache")
-    if [[ "$AUTO_HOME" -eq 1 && -d "$HOME" ]]; then
-      apptainer_args+=(--bind "$STATE_DIR/.module:$HOME/.module")
-    fi
-    mkdir -p "$STATE_DIR/spack/cache/opt-spack-var-cache"
-    apptainer_args+=(--bind "$STATE_DIR/spack/cache/opt-spack-var-cache:/opt/spack/var/spack/cache")
-  else
-    [[ -n "$STATE_DIR" ]] || STATE_DIR="$ROOT_DIR/.apptainer-spack"
-    mkdir -p "$STATE_DIR"
-
-    if state_uses_legacy_mount "$STATE_DIR"; then
-      echo "Spack state at $STATE_DIR still references the obsolete /apptainer-dev-state prefix." >&2
-      echo "Delete that state directory and bootstrap it again so installs use $STATE_MOUNT." >&2
-      exit 1
-    fi
-
-    if [[ ! -d "$STATE_DIR/spack/.git" || ! -f "$STATE_DIR/environments/default/spack.yaml" ]]; then
-      echo "Spack state at $STATE_DIR is not initialized yet." >&2
-      echo "Initialize it with:" >&2
-      echo "  $ROOT_DIR/bin/base-bootstrap-spack.sh --spack \"$STATE_DIR\"" >&2
-    fi
-
-    apptainer_args+=(--bind "$STATE_DIR:$HOME/.apptainer-spack")
-    apptainer_args+=(--env "APPTAINER_DEV_STATE_DIR=$HOME/.apptainer-spack")
-    mkdir -p "$STATE_DIR/.module"
-    if [[ "$AUTO_HOME" -eq 1 && -d "$HOME" ]]; then
-      apptainer_args+=(--bind "$STATE_DIR/.module:$HOME/.module")
-    fi
+  done
+  [[ "$USE_STATE" -eq 0 || "$STATE_MODE" == "mount" ]] || {
+    echo "--instance supports --mount-state, not legacy --spack/--state." >&2
+    exit 2
+  }
+  if ! "$CONTAINER_CLI" instance list 2>/dev/null | awk 'NR > 1 {print $1}' | grep -Fxq "$INSTANCE_NAME"; then
+    echo "Apptainer instance not found: $INSTANCE_NAME" >&2
+    exit 1
   fi
-else
-  apptainer_args+=(--env APPTAINER_DEV_STATE_DIR=/tmp/.apptainer-spack)
+  # The instance already owns its mounts. Only pass the private runtime
+  # environment and the command; host runtime sockets are not rebound here.
+  instance_runtime="/run/user/$(id -u)"
+  instance_args=(
+    --no-env XDG_RUNTIME_DIR
+    --no-env DBUS_SESSION_BUS_ADDRESS
+    --no-env GNOME_KEYRING_CONTROL
+    --no-env GNOME_KEYRING_PID
+    --no-env SSH_AUTH_SOCK
+    --env "APPTAINER_DEV_INSTANCE=$INSTANCE_NAME"
+    --env "XDG_RUNTIME_DIR=$instance_runtime"
+    --env "DBUS_SESSION_BUS_ADDRESS=unix:path=$instance_runtime/bus"
+    --env "APPTAINER_DEV_RUNTIME_DIR=$instance_runtime"
+    --env SSH_AUTH_SOCK=/tmp/apptainer-dev-ssh-agent.sock
+  )
+  if [[ ${#container_cmd[@]} -gt 0 ]]; then
+    print_command "$CONTAINER_CLI" exec "${instance_args[@]}" "instance://$INSTANCE_NAME" \
+      /usr/local/bin/dev-shell "${container_cmd[@]}"
+    exec "$CONTAINER_CLI" exec "${instance_args[@]}" "instance://$INSTANCE_NAME" \
+      /usr/local/bin/dev-shell "${container_cmd[@]}"
+  fi
+  print_command "$CONTAINER_CLI" exec "${instance_args[@]}" "instance://$INSTANCE_NAME" /usr/local/bin/dev-shell
+  exec "$CONTAINER_CLI" exec "${instance_args[@]}" "instance://$INSTANCE_NAME" /usr/local/bin/dev-shell
 fi
 
-if [[ "$AUTO_HOME" -eq 1 && -d "$HOME" ]]; then
-  apptainer_args=(--home "$HOME" "${apptainer_args[@]}")
-fi
+append_common_runtime_args
 
 if [[ ${#container_cmd[@]} -gt 0 ]]; then
   print_command "$CONTAINER_CLI" exec "${apptainer_args[@]}" "$IMAGE_PATH" \
