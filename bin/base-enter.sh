@@ -169,12 +169,9 @@ if [[ -n "$INSTANCE_NAME" ]]; then
   # The instance already owns its mounts. Only pass the private runtime
   # environment and the command; host runtime sockets are not rebound here.
   instance_runtime="/run/user/$(id -u)"
+  set_instance_env_isolation_args
   instance_args=(
-    --no-env XDG_RUNTIME_DIR
-    --no-env DBUS_SESSION_BUS_ADDRESS
-    --no-env GNOME_KEYRING_CONTROL
-    --no-env GNOME_KEYRING_PID
-    --no-env SSH_AUTH_SOCK
+    "${INSTANCE_ENV_ISOLATION_ARGS[@]}"
     --env "APPTAINER_DEV_INSTANCE=$INSTANCE_NAME"
     --env "XDG_RUNTIME_DIR=$instance_runtime"
     --env "DBUS_SESSION_BUS_ADDRESS=unix:path=$instance_runtime/bus"

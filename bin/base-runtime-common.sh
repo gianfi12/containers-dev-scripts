@@ -68,6 +68,38 @@ append_graphics_args() {
   fi
 }
 
+append_host_env_isolation_args() {
+  local cli_name
+  cli_name="$(basename "${CONTAINER_CLI:-apptainer}")"
+  if [[ "$cli_name" == "singularity" ]]; then
+    # Older Singularity releases do not implement Apptainer's --no-env.
+    # --cleanenv is the compatible way to keep host session variables out.
+    apptainer_args+=(--cleanenv)
+  else
+    apptainer_args+=(--no-env HYPRLAND_INSTANCE_SIGNATURE)
+    apptainer_args+=(--no-env XDG_RUNTIME_DIR)
+    apptainer_args+=(--no-env DBUS_SESSION_BUS_ADDRESS)
+    apptainer_args+=(--no-env GNOME_KEYRING_CONTROL)
+    apptainer_args+=(--no-env GNOME_KEYRING_PID)
+    apptainer_args+=(--no-env SSH_AUTH_SOCK)
+  fi
+}
+
+set_instance_env_isolation_args() {
+  local cli_name
+  cli_name="$(basename "${CONTAINER_CLI:-apptainer}")"
+  INSTANCE_ENV_ISOLATION_ARGS=()
+  if [[ "$cli_name" == "singularity" ]]; then
+    INSTANCE_ENV_ISOLATION_ARGS+=(--cleanenv)
+  else
+    INSTANCE_ENV_ISOLATION_ARGS+=(--no-env XDG_RUNTIME_DIR)
+    INSTANCE_ENV_ISOLATION_ARGS+=(--no-env DBUS_SESSION_BUS_ADDRESS)
+    INSTANCE_ENV_ISOLATION_ARGS+=(--no-env GNOME_KEYRING_CONTROL)
+    INSTANCE_ENV_ISOLATION_ARGS+=(--no-env GNOME_KEYRING_PID)
+    INSTANCE_ENV_ISOLATION_ARGS+=(--no-env SSH_AUTH_SOCK)
+  fi
+}
+
 append_state_args() {
   if [[ "${USE_STATE:-0}" -eq 0 ]]; then
     apptainer_args+=(--env APPTAINER_DEV_STATE_DIR=/tmp/.apptainer-spack)
@@ -121,12 +153,7 @@ append_common_runtime_args() {
   apptainer_args+=(--bind "$ROOT_DIR/support/dev-keyring-unlock:/usr/local/bin/keyring-unlock")
   apptainer_args+=(--bind "$ROOT_DIR/support/90-apptainer-dev-base.fish:/etc/fish/conf.d/90-apptainer-dev-base.fish")
   apptainer_args+=(--bind "$PROFILE_BIND_SOURCE:$PROFILE_BIND_TARGET")
-  apptainer_args+=(--no-env HYPRLAND_INSTANCE_SIGNATURE)
-  apptainer_args+=(--no-env XDG_RUNTIME_DIR)
-  apptainer_args+=(--no-env DBUS_SESSION_BUS_ADDRESS)
-  apptainer_args+=(--no-env GNOME_KEYRING_CONTROL)
-  apptainer_args+=(--no-env GNOME_KEYRING_PID)
-  apptainer_args+=(--no-env SSH_AUTH_SOCK)
+  append_host_env_isolation_args
   append_ssh_agent_args
   append_graphics_args
   append_state_args
