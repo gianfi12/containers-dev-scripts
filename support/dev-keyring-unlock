@@ -7,10 +7,13 @@ if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
   exit 1
 fi
 
-control_dir="${GNOME_KEYRING_CONTROL:-${XDG_RUNTIME_DIR:-/tmp}/keyring}"
+# Do not reuse GNOME_KEYRING_CONTROL inherited from the host shell or dotfiles.
+# It may point outside this container session and attach the daemon to the
+# wrong keyring control socket. Keep the daemon control socket instance-local.
+unset GNOME_KEYRING_CONTROL GNOME_KEYRING_PID
+control_dir="${XDG_RUNTIME_DIR:-/tmp}/keyring"
 mkdir -p "$control_dir"
 chmod 700 "$control_dir"
-unset GNOME_KEYRING_CONTROL GNOME_KEYRING_PID
 export GNOME_KEYRING_CONTROL="$control_dir"
 eval "$(gnome-keyring-daemon --start \
   --components=secrets \
