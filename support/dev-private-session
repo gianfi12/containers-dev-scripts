@@ -54,8 +54,12 @@ else
 fi
 
 cleanup() {
+  if [[ -n "${persistent_pid:-}" ]]; then
+    kill "$persistent_pid" 2>/dev/null || true
+  fi
   if [[ -n "${dbus_pid:-}" ]]; then
     kill "$dbus_pid" 2>/dev/null || true
+    dbus_pid=""
   fi
   # Apptainer owns scratch mounts and removes them after the payload exits.
   # Removing the runtime directory here can fail while Wayland's socket is
@@ -64,10 +68,14 @@ cleanup() {
     rm -rf "$bus_runtime"
   fi
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
 
 if [[ "$mode" == persistent ]]; then
-  exec tail -f /dev/null
+  tail -f /dev/null &
+  persistent_pid="$!"
+  wait "$persistent_pid"
+  exit 0
 fi
 
 if [[ $# -gt 0 ]]; then
