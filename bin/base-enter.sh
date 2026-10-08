@@ -173,6 +173,8 @@ if [[ -n "$INSTANCE_NAME" ]]; then
   instance_args=(
     "${INSTANCE_ENV_ISOLATION_ARGS[@]}"
     --env "APPTAINER_DEV_INSTANCE=$INSTANCE_NAME"
+    --env "APPTAINER_DEV_MOUNT=$DEV_MOUNT_TARGET"
+    --env "APPTAINER_DEV_STATE_DIR=$DEV_MOUNT_TARGET/spack"
     --env "XDG_RUNTIME_DIR=$instance_runtime"
     --env "DBUS_SESSION_BUS_ADDRESS=unix:path=$instance_runtime/bus"
     --env "APPTAINER_DEV_RUNTIME_DIR=$instance_runtime"

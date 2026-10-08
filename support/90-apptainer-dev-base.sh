@@ -1,6 +1,15 @@
 export APPTAINER_DEV_MOUNT="${APPTAINER_DEV_MOUNT:-}"
 export APPTAINER_DEV_STATE_DIR="${APPTAINER_DEV_STATE_DIR:-}"
 
+# Minimal/clean Singularity environments may leave the locale at plain C,
+# which makes tmux and shell prompts treat UTF-8 symbols as non-printable.
+case "${LANG:-C}" in
+    C|POSIX) export LANG=C.UTF-8 ;;
+esac
+case "${LC_CTYPE:-${LANG}}" in
+    C|POSIX) export LC_CTYPE=C.UTF-8 ;;
+esac
+
 if [ -n "${APPTAINER_DEV_MOUNT}" ] && [ -z "${APPTAINER_DEV_STATE_DIR}" ]; then
     export APPTAINER_DEV_STATE_DIR="${APPTAINER_DEV_MOUNT}/spack"
 fi

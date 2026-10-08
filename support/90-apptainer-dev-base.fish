@@ -1,6 +1,15 @@
 set -q APPTAINER_DEV_MOUNT; or set -gx APPTAINER_DEV_MOUNT ""
 set -q APPTAINER_DEV_STATE_DIR; or set -gx APPTAINER_DEV_STATE_DIR ""
 
+# Minimal/clean Singularity environments may leave the locale at plain C,
+# which makes tmux and shell prompts treat UTF-8 symbols as non-printable.
+if not set -q LANG; or test "$LANG" = C; or test "$LANG" = POSIX
+    set -gx LANG C.UTF-8
+end
+if not set -q LC_CTYPE; or test "$LC_CTYPE" = C; or test "$LC_CTYPE" = POSIX
+    set -gx LC_CTYPE C.UTF-8
+end
+
 if test -n "$APPTAINER_DEV_MOUNT"; and test -z "$APPTAINER_DEV_STATE_DIR"
     set -gx APPTAINER_DEV_STATE_DIR "$APPTAINER_DEV_MOUNT/spack"
 end
