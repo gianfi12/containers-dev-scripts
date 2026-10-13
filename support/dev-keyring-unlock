@@ -31,7 +31,7 @@ else
   read -r -s -p "Choose a new local keyring password: " password
 fi
 printf '\n' >&2
-if ! printf '%s\n' "$password" | timeout 10s gnome-keyring-daemon --unlock >/dev/null 2>&1; then
+if ! printf '%s\n' "$password" | timeout 10s gnome-keyring-daemon --replace --unlock --components=secrets --control-directory="$control_dir" >/dev/null 2>&1; then
   unset password
   echo "Unable to unlock the local keyring." >&2
   exit 1
