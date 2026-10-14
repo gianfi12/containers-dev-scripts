@@ -21,37 +21,25 @@ fi
 DEV_MOUNT_TARGET="${DEV_MOUNT_TARGET:-/mnt/dev}"
 PROFILE_BIND_SOURCE="${PROFILE_BIND_SOURCE:-$ROOT_DIR/support/90-apptainer-dev-base.sh}"
 PROFILE_BIND_TARGET="/etc/profile.d/90-apptainer-dev-base.sh"
-USE_STATE=0
-STATE_MODE=""
 STATE_DIR=""
-AUTO_HOME=1
 NO_SSH_AGENT=0
 INSTANCE_NAME=""
 
 usage() {
   cat <<EOF
 Usage:
-  $(basename "$0") [options] [apptainer-flags...] [-- command...]
+  $(basename "$0") [--mount-state DIR] [options] [apptainer-flags...] [-- command...]
 
 Options:
   --image PATH          Use a different base SIF image.
-  --mount-state DIR    Mount DIR at $DEV_MOUNT_TARGET.
-                        Spack state is stored in DIR/spack.
-  --spack DIR          Legacy mode: mount DIR as the Spack state root.
-  --state DIR          Alias for --spack.
-  --no-spack           Do not mount persistent Spack state.
+  --mount-state DIR    Persistent home and Spack state root (required for a new session).
   --no-ssh-agent       Do not forward the host SSH_AUTH_SOCK.
   --instance NAME      Execute in an existing Apptainer instance.
-  --nv, --nvidia       Enable NVIDIA support (must be set when starting an instance).
-  --rocm, --amd        Enable AMD ROCm support (must be set when starting an instance).
   --bind, -B SRC[:DST] Bind mount host directories inside the container.
-  --shell SHELL        Launch a specific shell (e.g. bash, fish, zsh).
   --help               Show this help.
 
 Examples:
-  $(basename "$0")
   $(basename "$0") --mount-state "\$PWD/mounts/fedora"
-  $(basename "$0") --spack "\$PWD/.apptainer-spack"
   $(basename "$0") --mount-state "\$PWD/mounts/fedora" --bind "\$PWD/project:/workspace" --pwd /workspace
   $(basename "$0") --mount-state "\$PWD/mounts/fedora" -B /hs/work0:/hs/work0
   $(basename "$0") --mount-state "\$PWD/mounts/fedora" -- bash -lc 'spack find'
@@ -59,8 +47,8 @@ Examples:
 
 Notes:
   Unknown flags and --bind/-B options are forwarded directly to the container runtime.
-  The host home is mounted by default at \$HOME.
-  Use \`--no-home\` if you explicitly want to disable that.
+  With --mount-state, the container home persists under DIR/home/USER.
+  Host directories are mounted only when explicitly requested with --bind/-B.
   Use \`--\` before a container command.
 EOF
 }
@@ -86,23 +74,9 @@ while [[ $# -gt 0 ]]; do
     IMAGE_PATH="$2"
     shift 2
     ;;
-  --mount-state | --mnt)
+  --mount-state)
     STATE_DIR="$2"
-    STATE_MODE="mount"
-    USE_STATE=1
     shift 2
-    ;;
-  --spack | --state)
-    STATE_DIR="$2"
-    STATE_MODE="legacy"
-    USE_STATE=1
-    shift 2
-    ;;
-  --no-spack | --no-state)
-    USE_STATE=0
-    STATE_DIR=""
-    STATE_MODE=""
-    shift
     ;;
   --no-ssh-agent)
     NO_SSH_AGENT=1
@@ -112,27 +86,12 @@ while [[ $# -gt 0 ]]; do
     INSTANCE_NAME="$2"
     shift 2
     ;;
-  --nvidia)
-    apptainer_args+=(--nv)
-    shift
-    ;;
-  --amd)
-    apptainer_args+=(--rocm)
-    shift
-    ;;
-  --shell)
-    container_cmd=("$2")
-    shift 2
-    ;;
   --)
     shift
     container_cmd=("$@")
     break
     ;;
   *)
-    if [[ "$1" == "--home" || "$1" == "--home="* || "$1" == "--no-home" ]]; then
-      AUTO_HOME=0
-    fi
     apptainer_args+=("$1")
     shift
     ;;
@@ -145,23 +104,11 @@ done
   exit 1
 }
 
-# Never use the host /run/user tree or /tmp as the container runtime directory.
-# Apptainer creates this scratch directory writable by the container user.
-CONTAINER_XDG_RUNTIME_DIR="/tmp/apptainer-dev-runtime"
-apptainer_args+=(--scratch "$CONTAINER_XDG_RUNTIME_DIR")
-apptainer_args+=(--env "APPTAINER_DEV_RUNTIME_DIR=$CONTAINER_XDG_RUNTIME_DIR")
-
 if [[ -n "$INSTANCE_NAME" ]]; then
-  for arg in "${apptainer_args[@]}"; do
-    if [[ "$arg" == "--nv" || "$arg" == "--rocm" ]]; then
-      echo "GPU flags must be passed to base-instance-start.sh, not base-enter.sh --instance." >&2
-      exit 2
-    fi
-  done
-  [[ "$USE_STATE" -eq 0 || "$STATE_MODE" == "mount" ]] || {
-    echo "--instance supports --mount-state, not legacy --spack/--state." >&2
+  if [[ ${#apptainer_args[@]} -gt 0 ]]; then
+    echo "Runtime flags such as --bind must be passed to base-instance-start.sh; mounts cannot be added to an existing instance." >&2
     exit 2
-  }
+  fi
   if ! "$CONTAINER_CLI" instance list 2>/dev/null | awk 'NR > 1 {print $1}' | grep -Fxq "$INSTANCE_NAME"; then
     echo "Apptainer instance not found: $INSTANCE_NAME" >&2
     exit 1
@@ -172,14 +119,44 @@ if [[ -n "$INSTANCE_NAME" ]]; then
   set_instance_env_isolation_args
   instance_args=(
     "${INSTANCE_ENV_ISOLATION_ARGS[@]}"
-    --env "APPTAINER_DEV_INSTANCE=$INSTANCE_NAME"
     --env "APPTAINER_DEV_MOUNT=$DEV_MOUNT_TARGET"
     --env "APPTAINER_DEV_STATE_DIR=$DEV_MOUNT_TARGET/spack"
+    --env "XDG_CONFIG_HOME=/home/$(id -un)/.config"
+    --env "XDG_DATA_HOME=$DEV_MOUNT_TARGET/.local/share"
+    --env "XDG_STATE_HOME=$DEV_MOUNT_TARGET/.local/state"
+    --env "XDG_CACHE_HOME=$DEV_MOUNT_TARGET/.cache"
     --env "XDG_RUNTIME_DIR=$instance_runtime"
     --env "DBUS_SESSION_BUS_ADDRESS=unix:path=$instance_runtime/bus"
-    --env "APPTAINER_DEV_RUNTIME_DIR=$instance_runtime"
-    --env SSH_AUTH_SOCK=/tmp/apptainer-dev-ssh-agent.sock
+    --env "SHELL=${SHELL:-/bin/bash}"
+    --env "TERM=${TERM:-xterm-256color}"
   )
+  if [[ -n "${COLORTERM:-}" ]]; then
+    instance_args+=(--env "COLORTERM=$COLORTERM")
+  fi
+  if [[ "$NO_SSH_AGENT" -eq 0 && -S "${SSH_AUTH_SOCK:-}" ]]; then
+    instance_args+=(--env SSH_AUTH_SOCK=/tmp/apptainer-dev-ssh-agent.sock)
+  fi
+  instance_graphics_session_type=""
+  if [[ -n "${WAYLAND_DISPLAY:-}" && -n "${XDG_RUNTIME_DIR:-}" ]]; then
+    instance_wayland_socket="$WAYLAND_DISPLAY"
+    if [[ "$WAYLAND_DISPLAY" != /* ]]; then
+      instance_wayland_socket="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+    fi
+    if [[ -S "$instance_wayland_socket" ]]; then
+      instance_args+=(--env "WAYLAND_DISPLAY=$(basename "$instance_wayland_socket")")
+      instance_graphics_session_type="wayland"
+    fi
+  fi
+  if [[ -n "${DISPLAY:-}" ]]; then
+    instance_args+=(--env "DISPLAY=$DISPLAY")
+    [[ -n "$instance_graphics_session_type" ]] || instance_graphics_session_type="x11"
+  fi
+  if [[ -n "${XAUTHORITY:-}" && -r "$XAUTHORITY" ]]; then
+    instance_args+=(--env "XAUTHORITY=$XAUTHORITY")
+  fi
+  if [[ -n "$instance_graphics_session_type" ]]; then
+    instance_args+=(--env "XDG_SESSION_TYPE=$instance_graphics_session_type")
+  fi
   if [[ ${#container_cmd[@]} -gt 0 ]]; then
     print_command "$CONTAINER_CLI" exec "${instance_args[@]}" "instance://$INSTANCE_NAME" \
       /usr/local/bin/dev-shell "${container_cmd[@]}"
@@ -189,6 +166,13 @@ if [[ -n "$INSTANCE_NAME" ]]; then
   print_command "$CONTAINER_CLI" exec "${instance_args[@]}" "instance://$INSTANCE_NAME" /usr/local/bin/dev-shell
   exec "$CONTAINER_CLI" exec "${instance_args[@]}" "instance://$INSTANCE_NAME" /usr/local/bin/dev-shell
 fi
+
+[[ -n "$STATE_DIR" ]] || { echo "Missing required --mount-state DIR" >&2; usage >&2; exit 2; }
+
+# Apptainer creates this private scratch directory for the container runtime.
+CONTAINER_XDG_RUNTIME_DIR="/tmp/apptainer-dev-runtime"
+apptainer_args+=(--scratch "$CONTAINER_XDG_RUNTIME_DIR")
+apptainer_args+=(--env "APPTAINER_DEV_RUNTIME_DIR=$CONTAINER_XDG_RUNTIME_DIR")
 
 append_common_runtime_args
 

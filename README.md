@@ -55,13 +55,34 @@ Inside the container, `keyring-unlock` starts GNOME Keyring and lets it prompt
 for the password. On first use, the password you enter creates the persistent
 local keyring; after an instance restart, run the same command again.
 
+With `--mount-state`, the wrapper always stores the container user's home at
+`DIR/home/$USER` and mounts it as `/home/$USER`. The host home is not mounted
+automatically. Mount a host directory only when needed with `--bind`.
+
+On first entry, the wrapper initializes the persistent home with Oh My Bash,
+Oh My Zsh, Oh My Fish, Oh My Tmux, Starship, and fzf integrations. Starship
+provides the same prompt across Bash, Zsh, and Fish. fzf key bindings are
+enabled by default in all three shells; inside tmux they use fzf's popup
+integration. The initializer downloads the frameworks and Starship once. Run it directly to prepare a state
+directory before entering it:
+
+The image includes Kitty's terminfo entry for terminal detection. Shell key
+bindings and tmux settings do not assume a specific terminal.
+
+```bash
+bash ./bin/base-state-init.sh "$PWD/mounts/fedora"
+```
+
+`fish --no-config` deliberately skips the user configuration and its fzf
+bindings. Start Fish normally to load the persistent container configuration.
+
 ## Raw Apptainer Command
 
 The wrapper is preferred, but the equivalent shape is:
 
 ```bash
 apptainer run \
-  --home "$HOME:/home/$USER" \
+  --home "$PWD/mounts/fedora/home/$USER:/home/$USER" \
   --bind "$PWD/mounts/fedora:/mnt/dev" \
   --bind "$PWD/mounts/fedora/.module:/home/$USER/.module" \
   --env APPTAINER_DEV_MOUNT=/mnt/dev \
@@ -69,7 +90,7 @@ apptainer run \
   ./images/base.sif
 ```
 
-`base-enter.sh` mounts the host home by default at `/home/$USER`. Additional bind and mount flags are forwarded to Apptainer unchanged. If you want a project mounted at `/workspace`, pass it explicitly:
+`base-enter.sh` uses the persistent state home at `/home/$USER`. Host directories are mounted only when explicitly requested. If you want a project mounted at `/workspace`, pass it explicitly:
 
 ```bash
 ./bin/base-enter.sh --mount-state "$PWD/mounts/fedora" \
@@ -95,6 +116,7 @@ mounts/fedora/
   scratch/
   opt/
   .module/
+  home/$USER/            # persistent container home and shell/tool configs
 ```
 
 Inside the container this becomes:
@@ -126,79 +148,6 @@ spack module tcl refresh -y
 module avail
 module save default
 ```
-
-## Existing `.apptainer-spack` and Migration
-
-Your previous state is still supported:
-
-```bash
-./bin/base-enter.sh --spack "$PWD/.apptainer-spack"
-```
-
-This legacy mode keeps the old state mounted at `/home/$USER/.apptainer-spack` and uses the `spack/` checkout inside that state if present. That avoids breaking installed packages whose prefixes were created with the old path.
-
-### Can the old install be converted?
-
-Not safely by just moving or renaming folders. The existing packages were installed with prefixes under the old mounted path, for example:
-
-```text
-/home/$USER/.apptainer-spack/store/...
-```
-
-The new layout uses:
-
-```text
-/mnt/dev/spack/store/...
-```
-
-Many Spack-installed packages and generated modulefiles embed absolute paths. Moving the store directly can leave binaries, RPATHs, scripts, pkg-config files, CMake files, and modulefiles pointing to the old location.
-
-### Recommended path: migrate specs, rebuild packages
-
-This is the clean migration. It preserves the package list and environment intent, but rebuilds/install packages into the new mount layout.
-
-```bash
-./bin/base-enter.sh --spack "$PWD/.apptainer-spack" -- bash -lc 'spack -e "$SPACK_ENV_DIR" find'
-cp .apptainer-spack/environments/default/spack.yaml /tmp/old-spack.yaml
-./bin/base-bootstrap-spack.sh --mount-state "$PWD/mounts/fedora"
-cp /tmp/old-spack.yaml mounts/fedora/spack/environments/default/spack.yaml
-./bin/base-enter.sh --mount-state "$PWD/mounts/fedora" -- bash -lc 'spack -e "$SPACK_ENV_DIR" concretize -f && spack -e "$SPACK_ENV_DIR" install'
-```
-
-If you also have a lock file and want to try reproducing the exact concretized DAG, copy it too:
-
-```bash
-cp .apptainer-spack/environments/default/spack.lock mounts/fedora/spack/environments/default/spack.lock
-./bin/base-enter.sh --mount-state "$PWD/mounts/fedora" -- bash -lc 'spack -e "$SPACK_ENV_DIR" install'
-```
-
-If the old lock references compiler/OS details that no longer match the rebuilt image, remove the copied lock and reconcretize:
-
-```bash
-rm mounts/fedora/spack/environments/default/spack.lock
-./bin/base-enter.sh --mount-state "$PWD/mounts/fedora" -- bash -lc 'spack -e "$SPACK_ENV_DIR" concretize -f && spack -e "$SPACK_ENV_DIR" install'
-```
-
-### Safe short-term path: keep the old state
-
-If you need the old packages immediately, keep using:
-
-```bash
-./bin/base-enter.sh --spack "$PWD/.apptainer-spack"
-```
-
-Use the new mount layout only for new environments:
-
-```bash
-./bin/base-bootstrap-spack.sh --mount-state "$PWD/mounts/fedora"
-./bin/base-enter.sh --mount-state "$PWD/mounts/fedora"
-```
-
-### Advanced path: Spack buildcache
-
-Spack can create binary caches and reinstall from them elsewhere, but this is not the same as moving the store. It requires signing or trusting buildcache metadata, and relocation only works for packages that Spack can relocate correctly.
-
-Use this only if rebuild time is the main problem and you are willing to debug package-specific relocation issues. For this setup, the default recommendation remains: migrate `spack.yaml`, optionally try `spack.lock`, and reinstall into `/mnt/dev/spack`.
 
 ## Python Venvs
 
@@ -284,20 +233,21 @@ Different containers can reuse that venv only if they mount the same state at th
 
 ## Neovim, tmux, and Clipboard
 
-The base image includes Neovim and tmux. It also includes `wl-copy`, `xclip`, and `xsel` for local graphical clipboard integration when the required host sockets are available.
+The persistent home installs Oh My Tmux and configures mouse mode, vi-style copy
+mode, and clipboard support. In tmux, press `Prefix` then `[` to enter copy
+mode, use `v` to select, and `y` to copy. The selection is placed in the tmux
+buffer and the desktop clipboard. The runtime forwards the Wayland socket so
+tmux can use `wl-copy` locally. On remote SSH sessions, clipboard forwarding
+depends on every terminal and tmux layer allowing OSC 52 writes.
 
-For tmux copy/paste that works through SSH and across machines, prefer OSC52 in your tmux config. OSC52 sends clipboard data through the terminal escape stream, so it can work even when Wayland/X11 sockets are not available inside the container.
-
-Recommended portable tmux config settings:
-
-```tmux
-set -g set-clipboard on
-set -as terminal-features ',xterm-256color:clipboard'
-set -as terminal-features ',screen-256color:clipboard'
-set -as terminal-features ',tmux-256color:clipboard'
-```
-
-Then make sure your outer terminal allows OSC52 clipboard writes. Kitty supports this, but it may need to be enabled depending on your local config. Over SSH, OSC52 must be allowed by every terminal/tmux layer between the remote shell and your local terminal.
+The persistent home installs the official LazyVim starter into
+`~/.config/nvim`. The initializer does not read or copy the host Neovim
+configuration. In a local desktop session, LazyVim configures `unnamedplus`,
+so ordinary yanks and puts use the system clipboard. Its provider uses
+`wl-copy` in the Wayland session; tmux also has OSC 52 enabled.
+The container forwards the host `SSH_AUTH_SOCK` socket by default, so SSH and
+Git can use identities held by the host agent without copying private keys into
+the container. Use `--no-ssh-agent` to disable forwarding.
 
 For portable editor/session config, keep your dotfiles repo separate from the Spack store. A practical layout is:
 

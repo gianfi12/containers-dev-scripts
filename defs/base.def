@@ -12,16 +12,12 @@ From: registry.fedoraproject.org/fedora-minimal:40
       apptainer build --fakeroot images/base.sif defs/base.def
 
     Run:
-      apptainer run images/base.sif
-      apptainer run --home "$HOME:/home/$USER" \
+      apptainer run --home "$PWD/mounts/fedora/home/$USER:/home/$USER" \
         --bind "$PWD/mounts/fedora:/mnt/dev" \
         --env APPTAINER_DEV_MOUNT=/mnt/dev \
         --env APPTAINER_DEV_STATE_DIR=/mnt/dev/spack \
         images/base.sif
-      apptainer run --home "$HOME:/home/$USER" \
-        --bind "$PWD/.apptainer-spack:/home/$USER/.apptainer-spack" \
-        --env APPTAINER_DEV_STATE_DIR=/home/$USER/.apptainer-spack \
-        images/base.sif
+
 
     Notes:
       - This image bakes in OS/editor/build dependencies and /opt/spack.
@@ -195,22 +191,6 @@ From: registry.fedoraproject.org/fedora-minimal:40
         /usr/local/bin/dev-instance-start \
         /usr/local/bin/keyring-unlock
 
-    if [ -f /etc/zshrc ]; then
-        if ! grep -q '90-apptainer-dev-base.sh' /etc/zshrc; then
-            cat >>/etc/zshrc <<'ZSHRC'
-[[ -f /etc/profile.d/90-apptainer-dev-base.sh ]] && source /etc/profile.d/90-apptainer-dev-base.sh
-ZSHRC
-        fi
-    elif [ -d /etc/zsh ]; then
-        cat >/etc/zsh/zshrc <<'ZSHRC'
-[[ -f /etc/profile.d/90-apptainer-dev-base.sh ]] && source /etc/profile.d/90-apptainer-dev-base.sh
-ZSHRC
-    else
-        cat >/etc/zshrc <<'ZSHRC'
-[[ -f /etc/profile.d/90-apptainer-dev-base.sh ]] && source /etc/profile.d/90-apptainer-dev-base.sh
-ZSHRC
-    fi
-
 %runscript
     exec /usr/local/bin/dev-shell "$@"
 
@@ -226,6 +206,7 @@ ZSHRC
     command -v node >/dev/null
     command -v npm >/dev/null
     command -v lazygit >/dev/null
+    command -v codex >/dev/null
     command -v yazi >/dev/null
     command -v ya >/dev/null
     command -v kitten >/dev/null
@@ -234,11 +215,10 @@ ZSHRC
     command -v pdftoppm >/dev/null
     command -v dbus-daemon >/dev/null
     command -v gnome-keyring-daemon >/dev/null
-    command -v codex >/dev/null
     command -v claude >/dev/null
     command -v agy >/dev/null
     command -v btop >/dev/null
     command -v nvtop >/dev/null
-    command -v module >/dev/null
+    command -v modulecmd >/dev/null
     command -v dev-bootstrap-spack-state >/dev/null
     test -f /opt/spack/share/spack/setup-env.sh

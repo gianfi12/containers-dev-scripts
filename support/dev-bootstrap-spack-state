@@ -1,24 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-STATE_DIR="${APPTAINER_DEV_STATE_DIR:-${HOME:-/tmp}/.apptainer-spack}"
-SPACK_REF="${SPACK_REF:-develop}"
+STATE_DIR="${APPTAINER_DEV_STATE_DIR:-}"
 DEFAULT_SPECS=(environment-modules zlib)
 EXTRA_SPECS=()
 
 usage() {
   cat <<USAGE
 Usage:
-  dev-bootstrap-spack-state [options] [spec...]
+  dev-bootstrap-spack-state [spec...]
 
 Options:
-  --state DIR    Install Spack state under DIR.
-  --ref REF      Clone Spack ref REF only if /opt/spack is unavailable.
   --help         Show this help.
 
 Examples:
-  dev-bootstrap-spack-state
-  dev-bootstrap-spack-state --state /mnt/dev/spack
   dev-bootstrap-spack-state hdf5
 USAGE
 }
@@ -28,14 +23,6 @@ while [[ $# -gt 0 ]]; do
   --help)
     usage
     exit 0
-    ;;
-  --state)
-    STATE_DIR="$2"
-    shift 2
-    ;;
-  --ref)
-    SPACK_REF="$2"
-    shift 2
     ;;
   --)
     shift
@@ -49,12 +36,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-IMAGE_SPACK_ROOT="${SPACK_ROOT:-/opt/spack}"
-if [[ -f "$IMAGE_SPACK_ROOT/share/spack/setup-env.sh" ]]; then
-  SPACK_ROOT="$IMAGE_SPACK_ROOT"
-else
-  SPACK_ROOT="$STATE_DIR/spack"
-fi
+[[ -n "$STATE_DIR" ]] || { echo "APPTAINER_DEV_STATE_DIR must point to /mnt/dev/spack" >&2; exit 2; }
+SPACK_ROOT=/opt/spack
+[[ -f "$SPACK_ROOT/share/spack/setup-env.sh" ]] || { echo "Spack is missing from the image at $SPACK_ROOT" >&2; exit 1; }
 
 SPACK_ENV_DIR="$STATE_DIR/environments/default"
 SPACK_USER_CONFIG_PATH="$STATE_DIR/config"
@@ -68,10 +52,6 @@ mkdir -p \
   "$STATE_DIR/stage" \
   "$SPACK_MODULE_ROOT" \
   "$SPACK_ENV_DIR"
-
-if [[ ! -f "$SPACK_ROOT/share/spack/setup-env.sh" ]]; then
-  git clone --depth 1 --branch "$SPACK_REF" https://github.com/spack/spack.git "$SPACK_ROOT"
-fi
 
 cat >"$SPACK_USER_CONFIG_PATH/config.yaml" <<CFG
 config:

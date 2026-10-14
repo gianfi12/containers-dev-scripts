@@ -6,10 +6,7 @@ IMAGE_PATH="${IMAGE_PATH:-$ROOT_DIR/images/base.sif}"
 PROFILE_BIND_SOURCE="${PROFILE_BIND_SOURCE:-$ROOT_DIR/support/90-apptainer-dev-base.sh}"
 PROFILE_BIND_TARGET="/etc/profile.d/90-apptainer-dev-base.sh"
 DEV_MOUNT_TARGET="${DEV_MOUNT_TARGET:-/mnt/dev}"
-USE_STATE=1
-STATE_MODE=mount
 STATE_DIR=""
-AUTO_HOME=1
 NO_SSH_AGENT=0
 INSTANCE_NAME=""
 apptainer_args=()
@@ -37,10 +34,9 @@ Options:
   --mount-state DIR    Persistent state root mounted at $DEV_MOUNT_TARGET.
   --image PATH         Base SIF image.
   --no-ssh-agent       Do not forward the host SSH_AUTH_SOCK.
-  --nv, --nvidia       Enable NVIDIA support.
-  --rocm, --amd        Enable AMD ROCm support.
-  --no-home            Do not mount the host home directory.
   --help               Show this help.
+
+Any additional arguments are passed unchanged to the container runtime.
 EOF
 }
 
@@ -54,12 +50,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --instance) INSTANCE_NAME="$2"; shift 2 ;;
-    --mount-state|--mnt) STATE_DIR="$2"; shift 2 ;;
+    --mount-state) STATE_DIR="$2"; shift 2 ;;
     --image) IMAGE_PATH="$2"; shift 2 ;;
     --no-ssh-agent) NO_SSH_AGENT=1; shift ;;
-    --nvidia) apptainer_args+=(--nv); shift ;;
-    --amd) apptainer_args+=(--rocm); shift ;;
-    --no-home) AUTO_HOME=0; apptainer_args+=(--no-home); shift ;;
     *) apptainer_args+=("$1"); shift ;;
   esac
 done
@@ -82,8 +75,6 @@ apptainer_args+=(--scratch "$runtime_dir")
 apptainer_args+=(--env "XDG_RUNTIME_DIR=$runtime_dir")
 apptainer_args+=(--env "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime_dir/bus")
 apptainer_args+=(--env "APPTAINER_DEV_RUNTIME_DIR=$runtime_dir")
-apptainer_args+=(--env "APPTAINER_DEV_INSTANCE=$INSTANCE_NAME")
-
 cmd=("$CONTAINER_CLI" instance start "${apptainer_args[@]}" "$IMAGE_PATH" "$INSTANCE_NAME")
 print_command "${cmd[@]}"
 exec "${cmd[@]}"

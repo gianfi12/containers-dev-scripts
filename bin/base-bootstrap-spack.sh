@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_PATH="${IMAGE_PATH:-$ROOT_DIR/images/base.sif}"
+. "$ROOT_DIR/bin/base-runtime-common.sh"
 
 CONTAINER_CLI="${CONTAINER_CLI:-}"
 if [[ -z "$CONTAINER_CLI" ]]; then
@@ -16,7 +17,7 @@ if [[ -z "$CONTAINER_CLI" ]]; then
   fi
 fi
 
-CONTAINER_HOME="${CONTAINER_HOME:-$HOME}"
+CONTAINER_HOME="${CONTAINER_HOME:-/home/$(id -un)}"
 STATE_BIND_TARGET="${STATE_BIND_TARGET:-/mnt/dev}"
 MODULE_COLLECTIONS_TARGET="${MODULE_COLLECTIONS_TARGET:-$CONTAINER_HOME/.module}"
 STATE_DIR=""
@@ -25,10 +26,10 @@ bootstrap_specs=()
 usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0") --state-dir DIR [-- spec...]
+  $(basename "$0") --mount-state DIR [-- spec...]
 
 Required:
-  --state-dir DIR   Host directory containing the persistent state layout
+  --mount-state DIR   Host directory containing the persistent state layout
 
 Optional:
   --image PATH      Use a different image
@@ -46,6 +47,7 @@ print_command() {
 
 init_state_layout() {
   local root="$1"
+  init_mount_state_layout "$root"
   mkdir -p \
     "$root/spack/config" \
     "$root/spack/cache/source" \
@@ -56,16 +58,7 @@ init_state_layout() {
     "$root/spack/modules" \
     "$root/spack/opt" \
     "$root/spack/stage" \
-    "$root/.module" \
-    "$root/venvs" \
-    "$root/work" \
-    "$root/scratch" \
-    "$root/opt" \
-    "$root/spack/cache/opt-spack-var-cache" \
-    "$root/.local/share" \
-    "$root/.local/state" \
-    "$root/.cache" \
-    "$root/data"
+    "$root/spack/cache/opt-spack-var-cache"
 }
 
 write_spack_config() {
@@ -106,7 +99,7 @@ while [[ $# -gt 0 ]]; do
     IMAGE_PATH="$2"
     shift 2
     ;;
-  --state-dir)
+  --mount-state)
     STATE_DIR="$2"
     shift 2
     ;;
@@ -123,7 +116,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$STATE_DIR" ]]; then
-  echo "Missing required --state-dir DIR" >&2
+  echo "Missing required --mount-state DIR" >&2
   usage >&2
   exit 1
 fi
@@ -134,15 +127,22 @@ fi
 }
 
 init_state_layout "$STATE_DIR"
+if [[ ! -f "$STATE_DIR/home/$(id -un)/.config/nvim/init.lua" ]]; then
+  bash "$ROOT_DIR/bin/base-state-init.sh" "$STATE_DIR" --quiet
+fi
 write_spack_config "$STATE_DIR"
 
 apptainer_args=(
-  --home "$HOME:$CONTAINER_HOME"
+  --home "$STATE_DIR/home/$(id -un):$CONTAINER_HOME"
   --bind "$STATE_DIR:$STATE_BIND_TARGET"
   --bind "$STATE_DIR/.module:$MODULE_COLLECTIONS_TARGET"
   --bind "$STATE_DIR/spack/cache/opt-spack-var-cache:/opt/spack/var/spack/cache"
   --env "APPTAINER_DEV_MOUNT=$STATE_BIND_TARGET"
   --env "APPTAINER_DEV_STATE_DIR=$STATE_BIND_TARGET/spack"
+  --env "XDG_CONFIG_HOME=$CONTAINER_HOME/.config"
+  --env "XDG_DATA_HOME=$STATE_BIND_TARGET/.local/share"
+  --env "XDG_STATE_HOME=$STATE_BIND_TARGET/.local/state"
+  --env "XDG_CACHE_HOME=$STATE_BIND_TARGET/.cache"
 )
 
 cmd=(
@@ -150,7 +150,6 @@ cmd=(
   "${apptainer_args[@]}"
   "$IMAGE_PATH"
   /usr/local/bin/dev-bootstrap-spack-state
-  --state "$STATE_BIND_TARGET/spack"
 )
 
 if [[ ${#bootstrap_specs[@]} -gt 0 ]]; then
