@@ -149,6 +149,44 @@ module avail
 module save default
 ```
 
+### Temporarily chain HPC modules or Spack
+
+The shell profiles provide `module_chain DIR`, `spack_chain INSTALL_TREE`, and `spack_unchain`. `module_chain` adds a modulefile directory to the current Environment Modules search path. `spack_chain` keeps the image's `/opt/spack` active and registers one installed Spack store as an upstream, so `spack find` sees its packages and concretization can reuse them. It copies the current Spack config to a temporary directory before adding the upstream; it does not modify the persistent config under `/mnt/dev`. Only one upstream can be active through these helper functions: call `spack_unchain` before selecting another. `spack_unchain` restores the original config for that shell.
+
+For a local test, use the installed store in `mount/spack/store` as the upstream. Give the container a small separate state directory and move it away from `/mnt/dev`, so the existing store can be mounted at the path recorded in its database:
+
+```bash
+test_state="$(mktemp -d /tmp/hpc-chain-state.XXXXXX)"
+mkdir -p "$test_state/home/$USER/.config/nvim"
+touch "$test_state/home/$USER/.config/nvim/init.lua"
+DEV_MOUNT_TARGET=/mnt/dev-test ./bin/base-enter.sh \
+  --image "$PWD/images/base.sif" \
+  --mount-state "$test_state" \
+  --bind "$PWD/mount/spack/store:/mnt/dev/spack/store" \
+  --bind "$PWD/mount/spack/modules:/mnt/dev/spack/modules" \
+  --bind "$PWD/examples/hpc-chain:$PWD/examples/hpc-chain" \
+  --pwd "$PWD" \
+  -- zsh -l
+```
+
+In Bash or Zsh, try:
+
+```bash
+module_chain "$PWD/examples/hpc-chain/modulefiles"
+module avail demo
+module load demo/1.0
+hpc-chain-demo
+
+spack_chain /mnt/dev/spack/store
+spack config get upstreams
+spack find zlib
+spack_unchain
+```
+
+For Fish, use the same commands after entering with `-- fish`. The demo modulefile is real Tcl for Environment Modules and adds a small executable to `PATH`. The Spack test uses the real store already present in `mount/spack/store`, so `spack find zlib` checks discovery of actual installed packages.
+
+For real HPC installations, preserving the host path is the safest default when modulefiles contain absolute paths: bind each required directory to the same path in the container, then pass that path to the function. Modulefiles may refer to additional software directories, which must also be bound at their expected paths. Avoid binding the cluster's entire `/opt` over the container's `/opt`, because that hides the image's `/opt/spack`; bind only the specific cluster directories needed.
+
 ## Python Venvs
 
 Use `/mnt/dev/venvs` for persistent virtualenvs:
